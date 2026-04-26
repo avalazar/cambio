@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cambio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Join screen -->
+    <div id="join-screen" class="screen">
+      <h1>Cambio</h1>
+      <p class="subtitle">A card game of memory and deception</p>
+      <form id="join-form">
+        <input
+          id="name-input"
+          type="text"
+          placeholder="Enter your name"
+          maxlength="20"
+          autocomplete="off"
+          required
+        />
+        <button type="submit">Join Lobby</button>
+      </form>
+    </div>
+
+    <!-- Lobby screen -->
+    <div id="lobby-screen" class="screen hidden">
+      <h1>Lobby</h1>
+      <p id="lobby-status">Waiting for players…</p>
+      <ul id="player-list"></ul>
+      <button id="start-btn" disabled>Start Game</button>
+    </div>
+
+    <!-- Game screen (placeholder) -->
+    <div id="game-screen" class="screen hidden">
+      <h1>Game Starting…</h1>
+      <p id="game-info"></p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
