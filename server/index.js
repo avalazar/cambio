@@ -147,6 +147,120 @@ io.on('connection', (socket) => {
     broadcastRoomList(); // room no longer open
   });
 
+  // ── Peek phase: player finished viewing their bottom 2 cards ──────────────
+  socket.on('playerReady', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room || !room.cambioState) return;
+    if (!room.players.has(socket.id)) return;
+
+    const state = room.cambioState;
+
+    // Guard: this event is only meaningful during the peek phase.
+    if (state.phase !== 'peek') return;
+
+    // peekReady is a Set of socketIds. Sets ignore duplicate adds, so a player
+    // who accidentally emits playerReady twice is counted only once.
+    state.peekReady.add(socket.id);
+
+    const readyCount = state.peekReady.size;
+    const totalCount = state.playerOrder.length;
+    console.log(`[peek:ready]  ${code} — ${readyCount}/${totalCount} players ready`);
+
+    // We compare set size to playerOrder.length rather than iterating, because
+    // every entry in playerOrder is a unique socketId — if the counts match,
+    // every player must have signalled ready.
+    if (readyCount === totalCount) {
+      state.phase = 'playing';
+
+      const firstPlayerId = state.playerOrder[state.currentTurnIndex];
+      io.to(code).emit('beginTurns', {
+        currentTurnId: firstPlayerId,
+      });
+      console.log(`[peek:done]   ${code} — turns begin, ${room.players.get(firstPlayerId)?.name} goes first`);
+    }
+  });
+
+  // ── Draw from deck ─────────────────────────────────────────────────────────
+  socket.on('deck:draw', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room || !room.cambioState) return;
+    const state = room.cambioState;
+
+    if (state.phase !== 'playing') return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return; // not your turn
+    if (state.drawnCard) return; // already holding a card this turn
+    if (state.deck.length === 0) return;
+
+    const card = state.deck.pop();
+    // Stash the card server-side so we can validate discard/swap actions.
+    state.drawnCard = { card, drawnBy: socket.id };
+
+    // Reveal card only to the drawing player — no one else learns its value.
+    socket.emit('card:drawn', { card });
+    // Notify everyone that the deck shrank.
+    io.to(code).emit('deck:update', { drawPileCount: state.deck.length });
+    console.log(`[deck:draw]   ${code} — ${room.players.get(socket.id)?.name} drew a card`);
+  });
+
+  // ── Discard the drawn card ─────────────────────────────────────────────────
+  socket.on('draw:discard', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room || !room.cambioState) return;
+    const state = room.cambioState;
+
+    // Verify this player is actually holding the drawn card.
+    if (!state.drawnCard || state.drawnCard.drawnBy !== socket.id) return;
+
+    const { card } = state.drawnCard;
+    state.drawnCard = null;
+    state.discardPile.push(card);
+
+    state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    const nextTurnId = state.playerOrder[state.currentTurnIndex];
+
+    io.to(code).emit('turn:advance', {
+      discardTop:    { ...state.discardPile.at(-1) },
+      currentTurnId: nextTurnId,
+      drawPileCount: state.deck.length,
+    });
+    console.log(`[draw:discard] ${code} — ${room.players.get(socket.id)?.name} discarded, ${room.players.get(nextTurnId)?.name}'s turn`);
+  });
+
+  // ── Swap drawn card with a hand slot ───────────────────────────────────────
+  socket.on('draw:swap', ({ code, slotIndex }) => {
+    const room = rooms.get(code);
+    if (!room || !room.cambioState) return;
+    const state = room.cambioState;
+
+    if (!state.drawnCard || state.drawnCard.drawnBy !== socket.id) return;
+    if (slotIndex < 0 || slotIndex > 3) return;
+
+    const drawnCard   = state.drawnCard.card;
+    const slot        = state.hands[socket.id][slotIndex];
+    const replacedCard = slot.card;
+
+    // Drawn card enters the hand face-down — no one has seen it yet.
+    state.hands[socket.id][slotIndex] = { card: drawnCard, knownTo: new Set() };
+
+    // Replaced card goes face-up to the discard pile.
+    state.drawnCard = null;
+    state.discardPile.push(replacedCard);
+
+    state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    const nextTurnId = state.playerOrder[state.currentTurnIndex];
+
+    // Send the updated hand only to the player who swapped.
+    const view = getPlayerView(state, socket.id);
+    socket.emit('hand:update', { hand: view.hand });
+
+    io.to(code).emit('turn:advance', {
+      discardTop:    { ...state.discardPile.at(-1) },
+      currentTurnId: nextTurnId,
+      drawPileCount: state.deck.length,
+    });
+    console.log(`[draw:swap]   ${code} — ${room.players.get(socket.id)?.name} swapped slot ${slotIndex}, ${room.players.get(nextTurnId)?.name}'s turn`);
+  });
+
   // ── Disconnect ─────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`[disconnect] ${socket.id}`);

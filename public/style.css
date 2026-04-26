@@ -428,7 +428,7 @@ h2 {
 /* Center piles */
 .center-piles {
   display: flex;
-  gap: 2.5rem;
+  gap: 1.5rem;
   justify-content: center;
   align-items: flex-start;
 }
@@ -543,4 +543,72 @@ h2 {
   border-radius: 50%;
   background: #f0c040;
   box-shadow: 0 0 5px rgba(240, 192, 64, 0.65);
+}
+
+/* ── Draw pile interactivity ───────────────────────────────── */
+#draw-pile-el.drawable {
+  cursor: pointer;
+  border-color: #4caf50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.45);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+#draw-pile-el.drawable:hover {
+  box-shadow: 0 0 16px rgba(76, 175, 80, 0.7);
+}
+#draw-pile-el.inactive {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Drawn card (held) pile slot ───────────────────────────── */
+.drawn-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+.drawn-actions button {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 6px;
+}
+.swap-btn.active {
+  background: #2a5a3a;
+  border: 1px solid #4caf50;
+  color: #4caf50;
+}
+.swap-btn.active:hover {
+  background: #336644;
+}
+
+/* ── Swappable hand cards (while holding a drawn card) ─────── */
+.card.swappable {
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.card.swappable:hover {
+  border-color: #4caf50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.55);
+}
+
+/* ── Peek phase controls ───────────────────────────────────── */
+.done-peeking-btn {
+  margin-top: 0.25rem;
+  padding: 0.6rem 1.6rem;
+  background: #2a5a3a;
+  border: 1px solid #4caf50;
+  color: #4caf50;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.done-peeking-btn:hover {
+  background: #336644;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
+}
+.peek-wait-text {
+  font-size: 0.82rem;
+  color: #666;
+  margin-top: 0.25rem;
 }

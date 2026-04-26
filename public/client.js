@@ -214,10 +214,24 @@ leaveBtn.addEventListener('click', () => {
   showScreen('home-screen');
 });
 
+// ── Client-side game state ─────────────────────────────────────────────────────
+// Slots the player has voluntarily hidden after peeking. The server still tracks
+// what was seen (knownTo), but the client hides them so the player must remember.
+let locallyHiddenSlots = new Set();
+
+// Card currently drawn by this player, pending a discard or swap decision.
+let localDrawnCard = null;
+
+// True when the player has clicked "Swap" and is selecting a hand slot to replace.
+let swapMode = false;
+
 // ── Game started ───────────────────────────────────────────────────────────────
 socket.on('game:started', (payload) => {
   if (payload.game === 'cambio') {
     cambioState = payload;
+    locallyHiddenSlots = new Set();
+    localDrawnCard = null;
+    swapMode = false;
     cambioBoard.classList.remove('hidden');
     genericGameInfo.classList.add('hidden');
     renderCambioBoard();
@@ -230,6 +244,105 @@ socket.on('game:started', (payload) => {
   showScreen('game-screen');
 });
 
+// ── Peek phase controls ────────────────────────────────────────────────────────
+document.getElementById('done-peeking-btn').addEventListener('click', () => {
+  // Locally hide the two peeked slots so they appear face-down again.
+  locallyHiddenSlots.add(2);
+  locallyHiddenSlots.add(3);
+
+  // Swap to the "waiting" state before the server confirms everyone is ready.
+  document.getElementById('done-peeking-btn').classList.add('hidden');
+  document.getElementById('peek-wait-text').classList.remove('hidden');
+
+  renderMyHand();
+  socket.emit('playerReady', { code: currentRoom });
+});
+
+// Server fires this once every player has clicked Done Peeking.
+socket.on('beginTurns', ({ currentTurnId }) => {
+  cambioState.phase      = 'playing';
+  cambioState.currentTurnId = currentTurnId;
+
+  // Hide all peek-phase UI.
+  document.getElementById('done-peeking-btn').classList.add('hidden');
+  document.getElementById('peek-wait-text').classList.add('hidden');
+
+  renderCambioBoard();
+});
+
+// ── Drawing from the deck ──────────────────────────────────────────────────────
+document.getElementById('draw-pile-el').addEventListener('click', () => {
+  if (cambioState?.phase !== 'playing') return;
+  if (cambioState.currentTurnId !== myId) return;
+  if (localDrawnCard) return; // already holding a card
+  socket.emit('deck:draw', { code: currentRoom });
+});
+
+// Server sends the drawn card privately only to the drawing player.
+socket.on('card:drawn', ({ card }) => {
+  localDrawnCard = card;
+  renderDrawnArea();
+  // Make draw pile non-clickable while holding a card.
+  document.getElementById('draw-pile-el').classList.add('inactive');
+});
+
+// Deck count updated for everyone when any player draws.
+socket.on('deck:update', ({ drawPileCount }) => {
+  cambioState.drawPileCount = drawPileCount;
+  document.getElementById('draw-pile-count').textContent = `${drawPileCount} left`;
+});
+
+// ── Drawn card actions ─────────────────────────────────────────────────────────
+document.getElementById('discard-drawn-btn').addEventListener('click', () => {
+  if (!localDrawnCard) return;
+  socket.emit('draw:discard', { code: currentRoom });
+  localDrawnCard = null;
+  swapMode = false;
+  renderDrawnArea();
+  renderMyHand();
+  document.getElementById('draw-pile-el').classList.remove('inactive');
+});
+
+document.getElementById('swap-drawn-btn').addEventListener('click', () => {
+  swapMode = !swapMode;
+  const btn = document.getElementById('swap-drawn-btn');
+  btn.textContent = swapMode ? 'Cancel' : 'Swap';
+  btn.classList.toggle('active', swapMode);
+  renderMyHand();
+});
+
+// Clicking a highlighted hand card while in swap mode performs the swap.
+document.getElementById('my-hand').addEventListener('click', (e) => {
+  if (!swapMode) return;
+  const card = e.target.closest('.card[data-slot]');
+  if (!card) return;
+  const slotIndex = parseInt(card.dataset.slot, 10);
+  socket.emit('draw:swap', { code: currentRoom, slotIndex });
+
+  // The swapped-in card is unknown — remove it from the locally-hidden set.
+  locallyHiddenSlots.delete(slotIndex);
+  localDrawnCard = null;
+  swapMode = false;
+  renderDrawnArea();
+  renderMyHand();
+  document.getElementById('draw-pile-el').classList.remove('inactive');
+});
+
+// ── Turn progression ───────────────────────────────────────────────────────────
+socket.on('turn:advance', ({ discardTop, currentTurnId, drawPileCount }) => {
+  cambioState.discardTop    = discardTop;
+  cambioState.currentTurnId = currentTurnId;
+  cambioState.drawPileCount = drawPileCount;
+  renderCambioBoard();
+});
+
+// Server sends the swapping player their updated hand after a swap.
+socket.on('hand:update', ({ hand }) => {
+  cambioState.hand = hand;
+  renderMyHand();
+});
+
+// ── Back to menu ───────────────────────────────────────────────────────────────
 backBtn.addEventListener('click', () => {
   socket.disconnect();
   socket.connect();
@@ -259,23 +372,76 @@ function renderCard(card, slotIndex = -1, seen = false) {
     </div>`;
 }
 
+function renderMyHand() {
+  const { hand, phase } = cambioState;
+  const isMyTurn = cambioState.currentTurnId === myId;
+
+  // A slot is shown face-up only if the server sent a card value AND
+  // the player hasn't chosen to hide it (locallyHiddenSlots).
+  document.getElementById('my-hand').innerHTML = hand.map((card, i) => {
+    const visible = card && !locallyHiddenSlots.has(i);
+    // In swap mode, hand slots are active targets — highlight them.
+    const swappable = swapMode ? ' swappable' : '';
+    return renderCard(visible ? card : null, i) .replace('class="card', `class="card${swappable}`);
+  }).join('');
+
+  // Done Peeking button: show if we're in peek phase and haven't clicked yet.
+  const donePeekingBtn  = document.getElementById('done-peeking-btn');
+  const peekWaitText    = document.getElementById('peek-wait-text');
+  const handLabel       = document.getElementById('hand-label-text');
+  const playerNotReady  = phase === 'peek' && !locallyHiddenSlots.has(2);
+
+  donePeekingBtn.classList.toggle('hidden', !playerNotReady);
+  peekWaitText.classList.toggle('hidden', !(phase === 'peek' && locallyHiddenSlots.has(2)));
+  handLabel.textContent = phase === 'peek' && !locallyHiddenSlots.has(2)
+    ? 'Your Cards — bottom row peeked'
+    : 'Your Cards';
+}
+
+function renderDrawnArea() {
+  const area = document.getElementById('drawn-card-area');
+  if (!localDrawnCard || cambioState?.currentTurnId !== myId) {
+    area.classList.add('hidden');
+    // Reset swap button state whenever the held card goes away.
+    const swapBtn = document.getElementById('swap-drawn-btn');
+    swapBtn.textContent = 'Swap';
+    swapBtn.classList.remove('active');
+    return;
+  }
+  area.classList.remove('hidden');
+  document.getElementById('drawn-card-display').innerHTML = renderCard(localDrawnCard);
+}
+
 function renderCambioBoard() {
   const { hand, discardTop, drawPileCount, playerOrder, myIndex, currentTurnId, phase } = cambioState;
   const isMyTurn = currentTurnId === myId;
 
+  // Turn indicator
   const turnEl = document.getElementById('turn-indicator');
-  const currentName = playerOrder.find(p => p.id === currentTurnId)?.name ?? '?';
-  turnEl.textContent = isMyTurn ? 'Your turn' : `${escapeHtml(currentName)}'s turn`;
-  turnEl.className = `turn-indicator${isMyTurn ? ' my-turn' : ''}`;
+  if (phase === 'peek') {
+    turnEl.textContent = 'Initial Peek';
+    turnEl.className   = 'turn-indicator';
+  } else {
+    const currentName = playerOrder.find(p => p.id === currentTurnId)?.name ?? '?';
+    turnEl.textContent = isMyTurn ? 'Your turn — draw a card' : `${escapeHtml(currentName)}'s turn`;
+    turnEl.className   = `turn-indicator${isMyTurn ? ' my-turn' : ''}`;
+  }
 
+  // Phase label
   const phaseEl = document.getElementById('phase-label');
   if (phase === 'peek') {
-    phaseEl.textContent = 'Look at your bottom 2 cards before play begins.';
+    phaseEl.textContent = 'Look at your bottom 2 cards, then click Done Peeking.';
     phaseEl.classList.remove('hidden');
   } else {
     phaseEl.classList.add('hidden');
   }
 
+  // Draw pile — clickable only on your turn in playing phase with no card held
+  const drawPileEl = document.getElementById('draw-pile-el');
+  const drawable   = phase === 'playing' && isMyTurn && !localDrawnCard;
+  drawPileEl.classList.toggle('drawable', drawable);
+
+  // Opponents
   const opponents = playerOrder.filter((_, i) => i !== myIndex);
   document.getElementById('opponents-area').innerHTML = opponents.map(p => {
     const seenSlots = cambioState.opponentsSeen?.[p.id] ?? [false, false, false, false];
@@ -290,7 +456,9 @@ function renderCambioBoard() {
 
   document.getElementById('draw-pile-count').textContent = `${drawPileCount} left`;
   document.getElementById('discard-pile-card').innerHTML = renderCard(discardTop);
-  document.getElementById('my-hand').innerHTML = hand.map((card, i) => renderCard(card, i)).join('');
+
+  renderMyHand();
+  renderDrawnArea();
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────────

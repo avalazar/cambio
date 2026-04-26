@@ -144,7 +144,7 @@
         <div class="center-piles">
           <div class="pile-slot">
             <p class="pile-label">Draw</p>
-            <div class="card face-down pile-card">
+            <div id="draw-pile-el" class="card face-down pile-card">
               <div class="card-back-inner"></div>
             </div>
             <p id="draw-pile-count" class="pile-count"></p>
@@ -153,14 +153,23 @@
             <p class="pile-label">Discard</p>
             <div id="discard-pile-card" class="pile-card-slot"></div>
           </div>
+          <!-- Held card — visible only when the active player is holding a drawn card -->
+          <div id="drawn-card-area" class="pile-slot hidden">
+            <p class="pile-label">Held</p>
+            <div id="drawn-card-display"></div>
+            <div class="drawn-actions">
+              <button id="discard-drawn-btn">Discard</button>
+              <button id="swap-drawn-btn" class="swap-btn">Swap</button>
+            </div>
+          </div>
         </div>
 
         <div class="my-hand-area">
-          <p class="hand-label">
-            Your Cards
-            <span class="hand-hint">bottom row peeked</span>
-          </p>
+          <p class="hand-label" id="hand-label-text">Your Cards</p>
           <div id="my-hand" class="card-grid-2x2"></div>
+          <!-- Peek-phase controls — mutually exclusive states -->
+          <button id="done-peeking-btn" class="done-peeking-btn hidden">Done Peeking</button>
+          <p id="peek-wait-text" class="peek-wait-text hidden">Waiting for other players…</p>
         </div>
       </div>
 

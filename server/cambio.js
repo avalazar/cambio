@@ -62,6 +62,15 @@ function createCambioState(playerIds) {
     playerOrder: [...playerIds],
     currentTurnIndex: 0,
     phase: 'peek',    // 'peek' | 'playing' | 'final-round' | 'resolution'
+
+    // Set of socketIds that have clicked "Done Peeking".
+    // Populated one-by-one; phase advances to 'playing' once its size === playerOrder.length.
+    peekReady: new Set(),
+
+    // Card currently held by the active player after drawing from the deck.
+    // Cleared when they discard it or swap it into their hand.
+    drawnCard: null,  // { card: {suit,rank,value}, drawnBy: socketId }
+
     cambioCallerId: null,
     finalRoundRemaining: 0,
   };
