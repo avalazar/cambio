@@ -9,30 +9,94 @@
 <body>
   <div id="app">
 
-    <!-- ── Home screen ──────────────────────────────────────── -->
+    <!-- ── 1. Home screen ────────────────────────────────────── -->
     <div id="home-screen" class="screen">
       <h1>Cambio</h1>
       <p class="subtitle">A card game hub for Cambio &amp; Un-Solitaire</p>
 
       <div id="connection-status" class="status-badge connecting">Connecting…</div>
 
-      <div class="name-row">
-        <input id="name-input" type="text" placeholder="Your name" maxlength="20" autocomplete="off" />
+      <div class="home-options">
+        <button id="goto-create-btn" class="home-option-btn" disabled>
+          <span class="option-icon">＋</span>
+          <span class="option-title">Create a Room</span>
+          <span class="option-desc">Start a new game for others to join</span>
+        </button>
+        <button id="goto-join-btn" class="home-option-btn" disabled>
+          <span class="option-icon">→</span>
+          <span class="option-title">Join a Room</span>
+          <span class="option-desc">Browse open games or enter a room code</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── 2. Create screen ───────────────────────────────────── -->
+    <div id="create-screen" class="screen hidden">
+      <div class="screen-header">
+        <button class="back-link" id="back-from-create">← Back</button>
       </div>
 
-      <div class="home-actions">
-        <button id="create-btn" disabled>Create Room</button>
-        <div class="divider">or</div>
-        <div class="join-row">
-          <input id="code-input" type="text" placeholder="Room code" maxlength="4" autocomplete="off" spellcheck="false" />
-          <button id="join-btn" disabled>Join</button>
+      <h2>Create a Room</h2>
+      <p class="subtitle">Choose a name to display to other players.</p>
+
+      <form id="create-form" class="name-form">
+        <input
+          id="create-name-input"
+          type="text"
+          placeholder="Your name"
+          maxlength="20"
+          autocomplete="off"
+          required
+        />
+        <button type="submit">Create Room</button>
+      </form>
+
+      <p id="create-error" class="error-msg hidden"></p>
+    </div>
+
+    <!-- ── 3. Join screen ────────────────────────────────────── -->
+    <div id="join-screen" class="screen hidden">
+      <div class="screen-header">
+        <button class="back-link" id="back-from-join">← Back</button>
+      </div>
+
+      <h2>Join a Room</h2>
+
+      <input
+        id="join-name-input"
+        type="text"
+        placeholder="Your name"
+        maxlength="20"
+        autocomplete="off"
+        class="join-name-field"
+      />
+
+      <div class="rooms-section">
+        <p class="section-label">Open Rooms</p>
+        <div id="rooms-list">
+          <p class="rooms-empty">No open rooms yet.</p>
         </div>
       </div>
 
-      <p id="home-error" class="error-msg hidden"></p>
+      <div class="manual-join-section">
+        <p class="section-label">Or enter a room code</p>
+        <div class="code-join-row">
+          <input
+            id="join-code-input"
+            type="text"
+            placeholder="ABCD"
+            maxlength="4"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="join-code-btn">Join</button>
+        </div>
+      </div>
+
+      <p id="join-error" class="error-msg hidden"></p>
     </div>
 
-    <!-- ── Lobby screen ─────────────────────────────────────── -->
+    <!-- ── 4. Lobby screen ────────────────────────────────────── -->
     <div id="lobby-screen" class="screen hidden">
       <div class="lobby-header">
         <h1>Lobby</h1>
@@ -63,7 +127,7 @@
       <button id="leave-btn" class="secondary">Leave Lobby</button>
     </div>
 
-    <!-- ── Game screen ───────────────────────────────────────── -->
+    <!-- ── 5. Game screen ─────────────────────────────────────── -->
     <div id="game-screen" class="screen hidden">
 
       <div class="game-top-bar">

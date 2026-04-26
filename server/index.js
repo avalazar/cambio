@@ -24,11 +24,33 @@ function generateRoomCode() {
   return code;
 }
 
+function getOpenRooms() {
+  return [...rooms.values()]
+    .filter(r => r.phase === 'lobby')
+    .map(r => ({
+      code: r.code,
+      game: r.game,
+      playerCount: r.players.size,
+      maxPlayers: 4,
+    }));
+}
+
+// Broadcast the current open-room list to everyone not yet inside a game room
+function broadcastRoomList() {
+  io.to('global').emit('rooms:list', getOpenRooms());
+}
+
 io.on('connection', (socket) => {
   console.log(`[connect]    ${socket.id}`);
+  socket.join('global'); // leave 'global' when entering a game room
+
+  // ── Room list (for join screen) ────────────────────────────────────────────
+  socket.on('rooms:get', () => {
+    socket.emit('rooms:list', getOpenRooms());
+  });
 
   // ── Create room ────────────────────────────────────────────────────────────
-  socket.on('room:create', ({ name, game }) => {
+  socket.on('room:create', ({ name }) => {
     const trimmedName = (name || '').trim().slice(0, 20) || 'Host';
     const code = generateRoomCode();
 
@@ -36,15 +58,17 @@ io.on('connection', (socket) => {
       code,
       hostId: socket.id,
       players: new Map([[socket.id, { id: socket.id, name: trimmedName }]]),
-      game: game || 'cambio',
+      game: 'cambio',
       phase: 'lobby',
     };
     rooms.set(code, room);
+    socket.leave('global');
     socket.join(code);
 
     console.log(`[room:create] ${code} by ${trimmedName}`);
     socket.emit('room:created', { code, playerId: socket.id, name: trimmedName });
     emitRoomUpdate(code);
+    broadcastRoomList();
   });
 
   // ── Join room ───────────────────────────────────────────────────────────────
@@ -67,11 +91,13 @@ io.on('connection', (socket) => {
 
     const trimmedName = (name || '').trim().slice(0, 20) || `Player ${room.players.size + 1}`;
     room.players.set(socket.id, { id: socket.id, name: trimmedName });
+    socket.leave('global');
     socket.join(upperCode);
 
     console.log(`[room:join]   ${upperCode} ← ${trimmedName}`);
     socket.emit('room:joined', { code: upperCode, playerId: socket.id, name: trimmedName });
     emitRoomUpdate(upperCode);
+    broadcastRoomList();
   });
 
   // ── Game selection (host only) ──────────────────────────────────────────────
@@ -81,6 +107,7 @@ io.on('connection', (socket) => {
     if (!['cambio', 'un-solitaire'].includes(game)) return;
     room.game = game;
     emitRoomUpdate(code);
+    broadcastRoomList();
   });
 
   // ── Start game (host only) ─────────────────────────────────────────────────
@@ -110,13 +137,14 @@ io.on('connection', (socket) => {
 
       console.log(`[game:start]  ${code} — cambio (${room.players.size}p, ${room.cambioState.deck.length} cards left)`);
     } else {
-      // Un-Solitaire — placeholder
       io.to(code).emit('game:started', {
         game: room.game,
         players: [...room.players.values()],
       });
       console.log(`[game:start]  ${code} — ${room.game}`);
     }
+
+    broadcastRoomList(); // room no longer open
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────────
@@ -139,6 +167,7 @@ io.on('connection', (socket) => {
       }
       break;
     }
+    broadcastRoomList();
   });
 });
 
