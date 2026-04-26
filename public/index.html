@@ -8,36 +8,68 @@
 </head>
 <body>
   <div id="app">
-    <!-- Join screen -->
-    <div id="join-screen" class="screen">
+
+    <!-- ── Home screen ──────────────────────────────────────── -->
+    <div id="home-screen" class="screen">
       <h1>Cambio</h1>
-      <p class="subtitle">A card game of memory and deception</p>
-      <form id="join-form">
-        <input
-          id="name-input"
-          type="text"
-          placeholder="Enter your name"
-          maxlength="20"
-          autocomplete="off"
-          required
-        />
-        <button type="submit">Join Lobby</button>
-      </form>
+      <p class="subtitle">A card game hub for Cambio &amp; Un-Solitaire</p>
+
+      <div id="connection-status" class="status-badge connecting">Connecting…</div>
+
+      <div class="name-row">
+        <input id="name-input" type="text" placeholder="Your name" maxlength="20" autocomplete="off" />
+      </div>
+
+      <div class="home-actions">
+        <button id="create-btn" disabled>Create Room</button>
+        <div class="divider">or</div>
+        <div class="join-row">
+          <input id="code-input" type="text" placeholder="Room code" maxlength="4" autocomplete="off" spellcheck="false" />
+          <button id="join-btn" disabled>Join</button>
+        </div>
+      </div>
+
+      <p id="home-error" class="error-msg hidden"></p>
     </div>
 
-    <!-- Lobby screen -->
+    <!-- ── Lobby screen ─────────────────────────────────────── -->
     <div id="lobby-screen" class="screen hidden">
-      <h1>Lobby</h1>
+      <div class="lobby-header">
+        <h1>Lobby</h1>
+        <div class="room-code-badge">
+          Room <span id="room-code-display">----</span>
+        </div>
+      </div>
+
       <p id="lobby-status">Waiting for players…</p>
       <ul id="player-list"></ul>
+
+      <div id="game-selector">
+        <p class="selector-label">Game</p>
+        <div class="game-options">
+          <button class="game-option" data-game="cambio" type="button">
+            <span class="game-name">Cambio</span>
+            <span class="game-desc">Memory &amp; deception</span>
+          </button>
+          <button class="game-option" data-game="un-solitaire" type="button">
+            <span class="game-name">Un-Solitaire</span>
+            <span class="game-desc">Cooperative solitaire</span>
+          </button>
+        </div>
+        <p id="host-note" class="host-note hidden">Only the host can change the game.</p>
+      </div>
+
       <button id="start-btn" disabled>Start Game</button>
+      <button id="leave-btn" class="secondary">Leave Lobby</button>
     </div>
 
-    <!-- Game screen (placeholder) -->
+    <!-- ── Game screen (placeholder) ────────────────────────── -->
     <div id="game-screen" class="screen hidden">
-      <h1>Game Starting…</h1>
+      <h1 id="game-title">Game Starting…</h1>
       <p id="game-info"></p>
+      <button id="back-btn" class="secondary">Back to Menu</button>
     </div>
+
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
