@@ -224,5 +224,209 @@ button.secondary:hover:not(:disabled) { border-color: #666; color: #aaa; backgro
 
 .host-note { font-size: 0.78rem; color: #555; margin-top: 0.5rem; }
 
-/* ── Game screen ───────────────────────────────────────────── */
+/* ── Generic game screen ───────────────────────────────────── */
 #game-info { margin-top: 1rem; color: #aaa; font-size: 0.95rem; }
+
+.game-top-bar {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.back-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #777;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.back-btn:hover { border-color: #777; color: #bbb; background: transparent; }
+
+/* ── Cambio board layout ───────────────────────────────────── */
+.cambio-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.turn-indicator {
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.35rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid #333;
+  color: #888;
+}
+.turn-indicator.my-turn {
+  border-color: #e94560;
+  color: #e94560;
+  background: rgba(233, 69, 96, 0.08);
+}
+
+.phase-label {
+  font-size: 0.82rem;
+  color: #777;
+  text-align: center;
+}
+
+/* Opponents */
+.opponents-area {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.25rem;
+  width: 100%;
+}
+.opponent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.opponent-name {
+  font-size: 0.78rem;
+  color: #777;
+}
+.opponent.active-turn .opponent-name {
+  color: #e94560;
+  font-weight: 600;
+}
+.opponent-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
+  gap: 4px;
+}
+.opponent-cards .card {
+  width: 44px;
+  height: 62px;
+  border-radius: 5px;
+}
+.opponent-cards .card-tl,
+.opponent-cards .card-br { font-size: 0.55rem; }
+.opponent-cards .card-suit { font-size: 1rem; }
+
+/* Center piles */
+.center-piles {
+  display: flex;
+  gap: 2.5rem;
+  justify-content: center;
+  align-items: flex-start;
+}
+.pile-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pile-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+}
+.pile-count {
+  font-size: 0.72rem;
+  color: #555;
+}
+.pile-card { flex-shrink: 0; }
+.pile-card-slot {
+  min-width: 72px;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* My hand */
+.my-hand-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+.hand-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+}
+.hand-hint {
+  font-size: 0.7rem;
+  color: #444;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 0.4rem;
+}
+.card-grid-2x2 {
+  display: grid;
+  grid-template-columns: repeat(2, 72px);
+  gap: 8px;
+}
+
+/* ── Playing cards ─────────────────────────────────────────── */
+.card {
+  width: 72px;
+  height: 100px;
+  border-radius: 8px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  flex-shrink: 0;
+}
+.card.face-up {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.card.face-up.red   { color: #c0392b; }
+.card.face-up.black { color: #1a1a1a; }
+.card.face-down {
+  background: linear-gradient(135deg, #1e3a5f 0%, #16213e 100%);
+  border: 2px solid #e94560;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.card-back-inner {
+  width: 80%;
+  height: 80%;
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  border-radius: 4px;
+}
+.card-tl {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+}
+.card-br {
+  position: absolute;
+  bottom: 4px;
+  right: 5px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  transform: rotate(180deg);
+}
+.card-suit { font-size: 1.5rem; line-height: 1; }
+
+.seen-dot {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f0c040;
+  box-shadow: 0 0 5px rgba(240, 192, 64, 0.65);
+}

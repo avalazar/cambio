@@ -63,11 +63,49 @@
       <button id="leave-btn" class="secondary">Leave Lobby</button>
     </div>
 
-    <!-- ── Game screen (placeholder) ────────────────────────── -->
+    <!-- ── Game screen ───────────────────────────────────────── -->
     <div id="game-screen" class="screen hidden">
-      <h1 id="game-title">Game Starting…</h1>
-      <p id="game-info"></p>
-      <button id="back-btn" class="secondary">Back to Menu</button>
+
+      <div class="game-top-bar">
+        <button id="back-btn" class="back-btn">← Menu</button>
+      </div>
+
+      <!-- Cambio board (shown when game === 'cambio') -->
+      <div id="cambio-board" class="cambio-board hidden">
+        <div id="turn-indicator" class="turn-indicator"></div>
+        <p id="phase-label" class="phase-label hidden"></p>
+
+        <div id="opponents-area" class="opponents-area"></div>
+
+        <div class="center-piles">
+          <div class="pile-slot">
+            <p class="pile-label">Draw</p>
+            <div class="card face-down pile-card">
+              <div class="card-back-inner"></div>
+            </div>
+            <p id="draw-pile-count" class="pile-count"></p>
+          </div>
+          <div class="pile-slot">
+            <p class="pile-label">Discard</p>
+            <div id="discard-pile-card" class="pile-card-slot"></div>
+          </div>
+        </div>
+
+        <div class="my-hand-area">
+          <p class="hand-label">
+            Your Cards
+            <span class="hand-hint">bottom row peeked</span>
+          </p>
+          <div id="my-hand" class="card-grid-2x2"></div>
+        </div>
+      </div>
+
+      <!-- Generic fallback (Un-Solitaire placeholder) -->
+      <div id="generic-game-info" class="hidden">
+        <h1 id="game-title">Game Starting…</h1>
+        <p id="game-info"></p>
+      </div>
+
     </div>
 
   </div>

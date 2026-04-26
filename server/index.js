@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const { createCambioState, getPlayerView } = require('./cambio');
 
 const app = express();
 const server = http.createServer(app);
@@ -88,11 +89,34 @@ io.on('connection', (socket) => {
     if (!room || room.hostId !== socket.id) return;
     if (room.players.size < 2) return;
     room.phase = 'playing';
-    io.to(code).emit('game:starting', {
-      game: room.game,
-      players: [...room.players.values()],
-    });
-    console.log(`[game:start]  ${code} — ${room.game}`);
+
+    if (room.game === 'cambio') {
+      const playerIds = [...room.players.keys()];
+      room.cambioState = createCambioState(playerIds);
+
+      const { playerOrder } = room.cambioState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+
+      // Emit privately — each player only receives their own hand (§5.1)
+      for (const socketId of playerOrder) {
+        const view = getPlayerView(room.cambioState, socketId);
+        io.to(socketId).emit('game:started', {
+          game: 'cambio',
+          playerOrder: playerList,
+          myIndex: playerOrder.indexOf(socketId),
+          ...view,
+        });
+      }
+
+      console.log(`[game:start]  ${code} — cambio (${room.players.size}p, ${room.cambioState.deck.length} cards left)`);
+    } else {
+      // Un-Solitaire — placeholder
+      io.to(code).emit('game:started', {
+        game: room.game,
+        players: [...room.players.values()],
+      });
+      console.log(`[game:start]  ${code} — ${room.game}`);
+    }
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────────

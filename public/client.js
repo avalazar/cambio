@@ -4,8 +4,11 @@ const socket = io();
 let myId = null;
 let myName = null;
 let currentRoom = null;
+let cambioState = null;
 
 const GAME_LABELS = { 'cambio': 'Cambio', 'un-solitaire': 'Un-Solitaire' };
+const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
+const RED_SUITS = new Set(['hearts', 'diamonds']);
 
 // ── DOM refs ───────────────────────────────────────────────────────────────────
 const connectionStatus = document.getElementById('connection-status');
@@ -26,6 +29,8 @@ const leaveBtn         = document.getElementById('leave-btn');
 const gameTitle        = document.getElementById('game-title');
 const gameInfo         = document.getElementById('game-info');
 const backBtn          = document.getElementById('back-btn');
+const cambioBoard      = document.getElementById('cambio-board');
+const genericGameInfo  = document.getElementById('generic-game-info');
 
 // ── Screen helper ──────────────────────────────────────────────────────────────
 function showScreen(id) {
@@ -137,10 +142,19 @@ startBtn.addEventListener('click', () => {
   socket.emit('room:start', { code: currentRoom });
 });
 
-socket.on('game:starting', ({ game, players }) => {
+socket.on('game:started', (payload) => {
+  if (payload.game === 'cambio') {
+    cambioState = payload;
+    cambioBoard.classList.remove('hidden');
+    genericGameInfo.classList.add('hidden');
+    renderCambioBoard();
+  } else {
+    cambioBoard.classList.add('hidden');
+    genericGameInfo.classList.remove('hidden');
+    gameTitle.textContent = GAME_LABELS[payload.game] ?? payload.game;
+    gameInfo.textContent = `Players: ${(payload.players ?? []).map(p => p.name).join(', ')}`;
+  }
   showScreen('game-screen');
-  gameTitle.textContent = GAME_LABELS[game] ?? game;
-  gameInfo.textContent = `Players: ${players.map((p) => p.name).join(', ')}`;
 });
 
 // ── Leave lobby ────────────────────────────────────────────────────────────────
@@ -158,6 +172,69 @@ backBtn.addEventListener('click', () => {
   currentRoom = null;
   showScreen('home-screen');
 });
+
+// ── Cambio rendering ───────────────────────────────────────────────────────────
+
+// card is { suit, rank, value } or null (face-down / unknown)
+// seen = true adds a gold dot indicating that player has looked at this card
+function renderCard(card, slotIndex = -1, seen = false) {
+  const slotAttr = slotIndex >= 0 ? ` data-slot="${slotIndex}"` : '';
+  if (!card) {
+    return `<div class="card face-down"${slotAttr}>
+      <div class="card-back-inner"></div>
+      ${seen ? '<div class="seen-dot"></div>' : ''}
+    </div>`;
+  }
+  const colorClass = RED_SUITS.has(card.suit) ? 'red' : 'black';
+  const sym = SUIT_SYMBOLS[card.suit];
+  return `
+    <div class="card face-up ${colorClass}"${slotAttr}>
+      <span class="card-tl">${card.rank}<br>${sym}</span>
+      <span class="card-suit">${sym}</span>
+      <span class="card-br">${card.rank}<br>${sym}</span>
+    </div>`;
+}
+
+function renderCambioBoard() {
+  const { hand, discardTop, drawPileCount, playerOrder, myIndex, currentTurnId, phase } = cambioState;
+  const isMyTurn = currentTurnId === myId;
+
+  // Turn indicator
+  const turnEl = document.getElementById('turn-indicator');
+  const currentName = playerOrder.find(p => p.id === currentTurnId)?.name ?? '?';
+  turnEl.textContent = isMyTurn ? 'Your turn' : `${escapeHtml(currentName)}'s turn`;
+  turnEl.className = `turn-indicator${isMyTurn ? ' my-turn' : ''}`;
+
+  // Phase label
+  const phaseEl = document.getElementById('phase-label');
+  if (phase === 'peek') {
+    phaseEl.textContent = 'Look at your bottom 2 cards before play begins.';
+    phaseEl.classList.remove('hidden');
+  } else {
+    phaseEl.classList.add('hidden');
+  }
+
+  // Opponents (everyone except me)
+  const opponents = playerOrder.filter((_, i) => i !== myIndex);
+  document.getElementById('opponents-area').innerHTML = opponents.map(p => {
+    const seenSlots = cambioState.opponentsSeen?.[p.id] ?? [false, false, false, false];
+    return `
+      <div class="opponent${p.id === currentTurnId ? ' active-turn' : ''}">
+        <p class="opponent-name">${escapeHtml(p.name)}</p>
+        <div class="opponent-cards">
+          ${[2, 3, 0, 1].map(i => renderCard(null, i, seenSlots[i])).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Center piles
+  document.getElementById('draw-pile-count').textContent = `${drawPileCount} left`;
+  document.getElementById('discard-pile-card').innerHTML = renderCard(discardTop);
+
+  // My hand: slots 0 & 1 are null (face-down), slots 2 & 3 are the peeked cards
+  document.getElementById('my-hand').innerHTML =
+    hand.map((card, i) => renderCard(card, i)).join('');
+}
 
 // ── Utility ────────────────────────────────────────────────────────────────────
 function escapeHtml(str) {
