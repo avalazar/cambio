@@ -39,9 +39,8 @@ let actionBroadcastTurnCount = 0;
 let gameLog    = [];
 let logVisible = false;
 
-// Undo-Cambio button is only shown for 5 s after Cambio is called.
-let undoCambioVisible = false;
-let undoCambioTimer   = null;
+// True while the player has clicked "Call Cambio" but not yet confirmed or cancelled.
+let cambioConfirmPending = false;
 
 const GAME_LABELS  = { cambio: 'Cambio', 'un-solitaire': 'Un-Solitaire' };
 const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
@@ -105,6 +104,8 @@ const actionLookSwapSkip   = document.getElementById('action-look-swap-skip-btn'
 const actionDoneBtn        = document.getElementById('action-done-btn');
 const actionSkipBtn        = document.getElementById('action-skip-btn');
 const callCambioBtn        = document.getElementById('call-cambio-btn');
+const cambioConfirmEl      = document.getElementById('cambio-confirm');
+const confirmCambioBtn     = document.getElementById('confirm-cambio-btn');
 const undoCambioBtn        = document.getElementById('undo-cambio-btn');
 
 // Match row
@@ -245,9 +246,7 @@ function resetGameState() {
   clearTimeout(toastTimer);
   toastIsSticky = false;
   toastEl.classList.add('hidden');
-  undoCambioVisible = false;
-  clearTimeout(undoCambioTimer);
-  undoCambioTimer = null;
+  cambioConfirmPending = false;
 }
 
 // ── Game started ───────────────────────────────────────────────────────────────
@@ -433,10 +432,11 @@ function exitMatchMode() {
 }
 
 // ── Match socket events ────────────────────────────────────────────────────────
-socket.on('match:success', ({ playerId, targetId, discardTop, drawPileCount, opponentHandSizes }) => {
+socket.on('match:success', ({ playerId, targetId, discardTop, drawPileCount, opponentHandSizes, seenUpdates }) => {
   cambioState.discardTop    = discardTop;
   cambioState.drawPileCount = drawPileCount;
   if (opponentHandSizes) mergeOpponentHandSizes(opponentHandSizes);
+  applySeenUpdates(seenUpdates);
   const name       = cambioState.playerOrder.find(p => p.id === playerId)?.name ?? '?';
   const targetName = targetId ? (cambioState.playerOrder.find(p => p.id === targetId)?.name ?? '?') : null;
   const msg     = playerId === myId ? 'Match! Card discarded.' : `${escapeHtml(name)} matched a card!`;
@@ -448,15 +448,25 @@ socket.on('match:success', ({ playerId, targetId, discardTop, drawPileCount, opp
   renderCambioBoard();
 });
 
-socket.on('match:penalty', ({ playerId, drawPileCount, opponentHandSizes }) => {
+socket.on('match:penalty', ({ playerId, drawPileCount, opponentHandSizes, seenUpdates }) => {
   cambioState.drawPileCount = drawPileCount;
   if (opponentHandSizes) mergeOpponentHandSizes(opponentHandSizes);
+  applySeenUpdates(seenUpdates);
   const name = cambioState.playerOrder.find(p => p.id === playerId)?.name ?? '?';
   const msg  = playerId === myId ? 'Wrong match — penalty card added!' : `${escapeHtml(name)} bad match — penalty!`;
   addLogEntry(`${escapeHtml(name)} mismatch — penalty card added`);
   showToast(msg, 'penalty');
   renderCambioBoard();
 });
+
+// Propagate null (empty tombstone) slot data to observers so they render empty slots correctly.
+function applySeenUpdates(seenUpdates) {
+  if (!seenUpdates) return;
+  if (!cambioState.opponentsSeen) cambioState.opponentsSeen = {};
+  for (const [id, seen] of Object.entries(seenUpdates)) {
+    if (id !== myId) cambioState.opponentsSeen[id] = seen;
+  }
+}
 
 // Update the client's opponentHandSizes map; keeps opponentsSeen arrays in sync by trimming/padding.
 function mergeOpponentHandSizes(sizes) {
@@ -605,26 +615,21 @@ socket.on('cambio:called', ({ callerId, callerName }) => {
   phaseEl.textContent = `${escapeHtml(callerName)} called Cambio — final round!`;
   phaseEl.classList.remove('hidden');
   addLogEntry(`${escapeHtml(callerName)} called Cambio!`);
-  if (callerId === myId) {
-    undoCambioVisible = true;
-    clearTimeout(undoCambioTimer);
-    undoCambioTimer = setTimeout(() => { undoCambioVisible = false; renderMyHand(); }, 5000);
-  }
+  cambioConfirmPending = false;
   renderCambioBoard();
 });
-callCambioBtn.addEventListener('click', () => { socket.emit('room:cambio', { code: currentRoom }); });
-undoCambioBtn.addEventListener('click', () => { socket.emit('cambio:undo', { code: currentRoom }); });
-
-socket.on('cambio:undone', ({ callerName }) => {
-  cambioState.phase = 'playing';
-  cambioState.cambioCallerId = null;
-  undoCambioVisible = false;
-  clearTimeout(undoCambioTimer);
-  undoCambioTimer = null;
-  document.getElementById('phase-label').classList.add('hidden');
-  addLogEntry(`${escapeHtml(callerName)} took back their Cambio call`);
-  showToast(`${escapeHtml(callerName)} took back their Cambio call.`, '');
-  renderCambioBoard();
+callCambioBtn.addEventListener('click', () => {
+  cambioConfirmPending = true;
+  renderMyHand();
+});
+confirmCambioBtn.addEventListener('click', () => {
+  cambioConfirmPending = false;
+  socket.emit('room:cambio', { code: currentRoom });
+  renderMyHand();
+});
+undoCambioBtn.addEventListener('click', () => {
+  cambioConfirmPending = false;
+  renderMyHand();
 });
 
 // ── Turn progression ───────────────────────────────────────────────────────────
@@ -766,10 +771,9 @@ function renderMyHand() {
   handLabel.textContent = phase === 'peek' && !locallyHiddenSlots.has(2) ? 'Your Cards — bottom row peeked' : 'Your Cards';
 
   const isMyTurn   = cambioState.currentTurnId === myId;
-  const showCambio = phase === 'playing' && isMyTurn && !localDrawnCard && !pendingAction && matchMode === 'off';
-  callCambioBtn.classList.toggle('hidden', !showCambio);
-  const showUndoCambio = undoCambioVisible && phase === 'final-round' && cambioState.cambioCallerId === myId;
-  undoCambioBtn.classList.toggle('hidden', !showUndoCambio);
+  const canCallCambio = phase === 'playing' && isMyTurn && !localDrawnCard && !pendingAction && matchMode === 'off';
+  callCambioBtn.classList.toggle('hidden', !canCallCambio || cambioConfirmPending);
+  cambioConfirmEl.classList.toggle('hidden', !cambioConfirmPending);
 }
 
 function renderDrawnArea() {

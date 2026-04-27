@@ -89,6 +89,11 @@ function buildHandSizes(state) {
   return Object.fromEntries(state.playerOrder.map(id => [id, state.hands[id].length]));
 }
 
+// Kings of opposite colors have different point values but match each other (§3.5).
+function matchKey(card) {
+  return card.rank === 'K' ? 'K' : card.value;
+}
+
 io.on('connection', (socket) => {
   console.log(`[connect]    ${socket.id}`);
   socket.join('global');
@@ -474,19 +479,22 @@ io.on('connection', (socket) => {
     const myHand = state.hands[socket.id];
     if (!myHand || slotIndex < 0 || slotIndex >= myHand.length) return;
 
-    const discardValue = state.discardPile.at(-1).value;
+    const discardKey = matchKey(state.discardPile.at(-1));
     const slot = myHand[slotIndex];
     if (slot.empty) return;
 
-    if (slot.card.value === discardValue) {
+    if (matchKey(slot.card) === discardKey) {
       state.discardPile.push(slot.card);
       myHand[slotIndex] = { card: null, knownTo: new Set(), empty: true };
       socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
       const sizes = buildHandSizes(state);
+      const seenUpdates = {
+        [socket.id]: state.hands[socket.id].map(s => s.empty ? null : s.knownTo.has(socket.id)),
+      };
       io.to(code).emit('match:success', {
         playerId: socket.id, targetId: null,
         discardTop: { ...state.discardPile.at(-1) },
-        drawPileCount: state.deck.length, opponentHandSizes: sizes,
+        drawPileCount: state.deck.length, opponentHandSizes: sizes, seenUpdates,
       });
       console.log(`[match:self]  ${code} — ${room.players.get(socket.id)?.name} matched ${slot.card.rank}`);
     } else {
@@ -498,6 +506,7 @@ io.on('connection', (socket) => {
       const sizes = buildHandSizes(state);
       io.to(code).emit('match:penalty', {
         playerId: socket.id, drawPileCount: state.deck.length, opponentHandSizes: sizes,
+        seenUpdates: { [socket.id]: state.hands[socket.id].map(s => s.empty ? null : s.knownTo.has(socket.id)) },
       });
       console.log(`[match:fail]  ${code} — ${room.players.get(socket.id)?.name} failed self-match (penalty)`);
     }
@@ -519,11 +528,11 @@ io.on('connection', (socket) => {
     if (targetSlot < 0 || targetSlot >= targetHand.length) return;
     if (mySlot < 0    || mySlot    >= myHand.length)       return;
 
-    const discardValue = state.discardPile.at(-1).value;
-    const targetCard   = targetHand[targetSlot].card;
+    const discardKey = matchKey(state.discardPile.at(-1));
+    const targetCard = targetHand[targetSlot].card;
     if (targetHand[targetSlot].empty || myHand[mySlot].empty) return;
 
-    if (targetCard.value === discardValue) {
+    if (matchKey(targetCard) === discardKey) {
       // Discard the opponent's matched card; tombstone keeps slot positions stable.
       state.discardPile.push(targetCard);
       targetHand[targetSlot] = { card: null, knownTo: new Set(), empty: true };
@@ -535,10 +544,14 @@ io.on('connection', (socket) => {
       socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
       io.to(targetId).emit('hand:update', { hand: getPlayerView(state, targetId).hand });
       const sizes = buildHandSizes(state);
+      const seenUpdates = {
+        [socket.id]: state.hands[socket.id].map(s => s.empty ? null : s.knownTo.has(socket.id)),
+        [targetId]:  state.hands[targetId].map(s => s.empty ? null : s.knownTo.has(targetId)),
+      };
       io.to(code).emit('match:success', {
         playerId: socket.id, targetId,
         discardTop: { ...state.discardPile.at(-1) },
-        drawPileCount: state.deck.length, opponentHandSizes: sizes,
+        drawPileCount: state.deck.length, opponentHandSizes: sizes, seenUpdates,
       });
       console.log(`[match:opp]   ${code} — ${room.players.get(socket.id)?.name} matched ${room.players.get(targetId)?.name}'s ${targetCard.rank}`);
     } else {
@@ -549,6 +562,7 @@ io.on('connection', (socket) => {
       const sizes = buildHandSizes(state);
       io.to(code).emit('match:penalty', {
         playerId: socket.id, drawPileCount: state.deck.length, opponentHandSizes: sizes,
+        seenUpdates: { [socket.id]: state.hands[socket.id].map(s => s.empty ? null : s.knownTo.has(socket.id)) },
       });
       console.log(`[match:fail]  ${code} — ${room.players.get(socket.id)?.name} failed opponent-match (penalty)`);
     }
