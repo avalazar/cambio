@@ -378,9 +378,9 @@ h2 {
   color: #888;
 }
 .turn-indicator.my-turn {
-  border-color: #e94560;
-  color: #e94560;
-  background: rgba(233, 69, 96, 0.08);
+  border-color: #4caf50;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
 }
 
 .phase-label {
@@ -543,6 +543,17 @@ h2 {
   border-radius: 50%;
   background: #f0c040;
   box-shadow: 0 0 5px rgba(240, 192, 64, 0.65);
+}
+
+/* ── Action-broadcast highlight (peek/spy/swap targets) ────── */
+.card.action-highlight {
+  border-color: #64b5f6 !important;
+  box-shadow: 0 0 14px rgba(100, 181, 246, 0.75) !important;
+  animation: action-hl-pulse 1.2s ease-in-out infinite;
+}
+@keyframes action-hl-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(100, 181, 246, 0.5) !important; }
+  50%       { box-shadow: 0 0 22px rgba(100, 181, 246, 1.0) !important; }
 }
 
 /* ── Draw pile interactivity ───────────────────────────────── */
@@ -710,6 +721,16 @@ h2 {
 }
 .toast.success { border-color: #4caf50; color: #4caf50; }
 .toast.penalty { border-color: #e94560; color: #e94560; }
+/* Action messages span full width to cover the turn indicator below them */
+.toast.action-msg {
+  left: 1rem;
+  right: 1rem;
+  transform: none;
+  white-space: normal;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
 
 /* ── Call Cambio button ────────────────────────────────────── */
 .call-cambio-btn {
@@ -728,6 +749,25 @@ h2 {
 .call-cambio-btn:hover {
   background: rgba(233, 69, 96, 0.1);
   box-shadow: 0 0 8px rgba(233, 69, 96, 0.4);
+}
+
+/* ── Undo Cambio button ────────────────────────────────────── */
+.undo-cambio-btn {
+  margin-top: 0.4rem;
+  padding: 0.5rem 1.4rem;
+  background: transparent;
+  border: 2px solid #f5a623;
+  color: #f5a623;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-radius: 8px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.undo-cambio-btn:hover {
+  background: rgba(245, 166, 35, 0.12);
+  box-shadow: 0 0 8px rgba(245, 166, 35, 0.45);
 }
 
 /* ── Final-round banner ────────────────────────────────────── */

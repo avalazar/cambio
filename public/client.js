@@ -30,15 +30,22 @@ let matchMode = 'off';
 // Stores the opponent's card selected in step 1 of an opponent match.
 let matchOpponentTarget = null; // { targetId, targetSlot }
 
+// Broadcast highlight: which cards are being targeted by the current action.
+// Shown to all players for 3 seconds after an action resolves.
+let actionBroadcast = null; // { actorId, type, targets: [{playerId, slot}] }
+let actionBroadcastTimer = null;
+
 const GAME_LABELS  = { cambio: 'Cambio', 'un-solitaire': 'Un-Solitaire' };
 const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
 const RED_SUITS    = new Set(['hearts', 'diamonds']);
 
 const ACTION_LABELS = {
-  peek:         'Peek',
-  spy:          'Spy',
-  'blind-swap': 'Blind Swap',
-  'look-swap':  'Look & Swap',
+  peek:              'Peek',
+  spy:               'Spy',
+  'blind-swap':      'Blind Swap',
+  'look-swap':       'Look & Swap',
+  'look-swap-peek':  'Look & Swap',
+  swap:              'Swap',
 };
 const ACTION_TURN_HINTS = {
   peek:         'peeking at their own card',
@@ -90,6 +97,7 @@ const actionLookSwapSkip   = document.getElementById('action-look-swap-skip-btn'
 const actionDoneBtn        = document.getElementById('action-done-btn');
 const actionSkipBtn        = document.getElementById('action-skip-btn');
 const callCambioBtn        = document.getElementById('call-cambio-btn');
+const undoCambioBtn        = document.getElementById('undo-cambio-btn');
 
 // Match row
 const matchRow             = document.getElementById('match-row');
@@ -104,7 +112,8 @@ const playAgainBtn         = document.getElementById('play-again-btn');
 
 // Toast
 const toastEl              = document.getElementById('toast');
-let toastTimer = null;
+let toastTimer    = null;
+let toastIsSticky = false; // sticky toasts persist until turn:advance clears them
 
 // ── Screen helper ──────────────────────────────────────────────────────────────
 function showScreen(id) {
@@ -114,12 +123,15 @@ function showScreen(id) {
 function showError(el, msg) { el.textContent = msg; el.classList.remove('hidden'); }
 function clearError(el)     { el.textContent = ''; el.classList.add('hidden'); }
 
-function showToast(msg, type = '') {
+function showToast(msg, type = '', sticky = false) {
   clearTimeout(toastTimer);
+  toastIsSticky = sticky;
   toastEl.textContent = msg;
-  toastEl.className   = `toast${type ? ' ' + type : ''}`;
+  toastEl.className   = `toast${type ? ' ' + type : ''}${sticky ? ' action-msg' : ''}`;
   toastEl.classList.remove('hidden');
-  toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 2800);
+  if (!sticky) {
+    toastTimer = setTimeout(() => { toastEl.classList.add('hidden'); toastIsSticky = false; }, 2800);
+  }
 }
 
 // ── Connection ─────────────────────────────────────────────────────────────────
@@ -218,6 +230,12 @@ function resetGameState() {
   activeActionActor   = null;
   matchMode           = 'off';
   matchOpponentTarget = null;
+  actionBroadcast     = null;
+  clearTimeout(actionBroadcastTimer);
+  actionBroadcastTimer = null;
+  clearTimeout(toastTimer);
+  toastIsSticky = false;
+  toastEl.classList.add('hidden');
 }
 
 // ── Game started ───────────────────────────────────────────────────────────────
@@ -319,14 +337,21 @@ document.getElementById('my-hand').addEventListener('click', (e) => {
   // Action mode: peek, blind-swap step 1, or look-swap swap step.
   if (!pendingAction) return;
   if (pendingAction.type === 'peek' && pendingAction.step === 'choose-card') {
-    if (cambioState.hand[slotIndex] !== null && !locallyHiddenSlots.has(slotIndex)) return;
     socket.emit('action:peek', { code: currentRoom, slotIndex });
     pendingAction = null; activeActionType = null; activeActionActor = null;
     renderActionPanel(); return;
   }
-  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-own') {
-    pendingAction.data.mySlot = slotIndex;
-    pendingAction.step = 'choose-target';
+  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-first') {
+    pendingAction.data.card1 = { playerId: myId, slot: slotIndex };
+    pendingAction.step = 'choose-second';
+    renderActionPanel(); return;
+  }
+  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-second') {
+    const card1 = pendingAction.data.card1;
+    const card2 = { playerId: myId, slot: slotIndex };
+    if (card1.playerId === card2.playerId && card1.slot === card2.slot) return;
+    socket.emit('action:blind-swap', { code: currentRoom, card1, card2 });
+    pendingAction = null; activeActionType = null; activeActionActor = null;
     renderActionPanel(); return;
   }
   if (pendingAction.type === 'look-swap' && pendingAction.step === 'choose-own-for-swap') {
@@ -360,8 +385,16 @@ document.getElementById('opponents-area').addEventListener('click', (e) => {
     pendingAction = null; activeActionType = null; activeActionActor = null;
     renderActionPanel(); return;
   }
-  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-target') {
-    socket.emit('action:blind-swap', { code: currentRoom, mySlot: pendingAction.data.mySlot, targetId, targetSlot: slotIndex });
+  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-first') {
+    pendingAction.data.card1 = { playerId: targetId, slot: slotIndex };
+    pendingAction.step = 'choose-second';
+    renderActionPanel(); return;
+  }
+  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-second') {
+    const card1 = pendingAction.data.card1;
+    const card2 = { playerId: targetId, slot: slotIndex };
+    if (card1.playerId === card2.playerId && card1.slot === card2.slot) return;
+    socket.emit('action:blind-swap', { code: currentRoom, card1, card2 });
     pendingAction = null; activeActionType = null; activeActionActor = null;
     renderActionPanel(); return;
   }
@@ -425,11 +458,8 @@ actionSkipBtn.addEventListener('click', () => {
   renderActionPanel();
 });
 actionDoneBtn.addEventListener('click', () => {
-  // After peeking, re-hide the card so the player must remember it.
-  if (pendingAction?.type === 'peek' && pendingAction.data?.slotIndex != null) {
-    locallyHiddenSlots.add(pendingAction.data.slotIndex);
-  }
   pendingAction = null; activeActionType = null; activeActionActor = null;
+  socket.emit('action:done', { code: currentRoom });
   renderActionPanel(); renderCambioBoard();
 });
 actionLookSwapBtn.addEventListener('click', () => {
@@ -442,13 +472,24 @@ actionLookSwapSkip.addEventListener('click', () => {
 });
 
 // ── Action socket events ───────────────────────────────────────────────────────
+const ACTION_PRESENT = {
+  peek:         'is peeking at one of their cards',
+  spy:          'is about to spy on a card',
+  'blind-swap': 'is doing a blind swap',
+  'look-swap':  'is about to look & swap',
+};
+
 socket.on('action:required', ({ type, actingPlayerId, discardTop, drawPileCount }) => {
   cambioState.discardTop = discardTop; cambioState.drawPileCount = drawPileCount;
   activeActionType = type; activeActionActor = actingPlayerId;
+  if (actingPlayerId !== myId) {
+    const name = escapeHtml(cambioState?.playerOrder.find(p => p.id === actingPlayerId)?.name ?? '?');
+    showToast(`${name} ${ACTION_PRESENT[type] ?? 'is taking an action'}`, '', true);
+  }
   if (actingPlayerId === myId) {
     pendingAction = {
       type, data: {},
-      step: type === 'peek' ? 'choose-card' : type === 'spy' ? 'choose-target' : type === 'blind-swap' ? 'choose-own' : 'choose-target',
+      step: type === 'peek' ? 'choose-card' : type === 'spy' ? 'choose-target' : type === 'blind-swap' ? 'choose-first' : 'choose-target',
     };
   }
   renderCambioBoard(); renderActionPanel();
@@ -479,6 +520,53 @@ socket.on('action:spy-result', ({ card, targetName, slotIndex }) => {
   pendingAction = { type: 'spy', step: 'showing-result', data: {} };
 });
 
+function buildActionBroadcastMsg(actorId, type, targets) {
+  const actorName = escapeHtml(cambioState?.playerOrder.find(p => p.id === actorId)?.name ?? '?');
+  function cardOf(playerId) {
+    if (playerId === myId)    return 'your card';
+    if (playerId === actorId) return 'their card';
+    const n = cambioState?.playerOrder.find(p => p.id === playerId)?.name ?? '?';
+    return `${escapeHtml(n)}'s card`;
+  }
+  switch (type) {
+    case 'peek':
+      return `${actorName} is peeking at their card ${(targets[0]?.slot ?? 0) + 1}`;
+    case 'spy':
+    case 'look-swap-peek': {
+      const t = targets[0];
+      if (!t) return `${actorName} is peeking at a card`;
+      const whose = t.playerId === myId ? 'one of YOUR cards' : cardOf(t.playerId);
+      return `${actorName} is peeking at ${whose}`;
+    }
+    case 'blind-swap': {
+      if (targets.length < 2) return `${actorName} swapped two cards`;
+      return `${actorName} swapped ${cardOf(targets[0].playerId)} with ${cardOf(targets[1].playerId)}`;
+    }
+    case 'look-swap': {
+      const opp = targets.find(t => t.playerId !== actorId);
+      if (!opp) return `${actorName} swapped cards`;
+      const whose = opp.playerId === myId ? 'YOUR card' : cardOf(opp.playerId);
+      return `${actorName} swapped ${whose} with their own`;
+    }
+    case 'swap':
+      return `${actorName} swapped their drawn card into slot ${(targets[0]?.slot ?? 0) + 1}`;
+    default:
+      return `${actorName}: ${ACTION_LABELS[type] ?? type}`;
+  }
+}
+
+// Shown to ALL players — highlights which cards were targeted for 5 seconds.
+socket.on('action:broadcast', ({ actorId, type, targets }) => {
+  clearTimeout(actionBroadcastTimer);
+  actionBroadcast = { actorId, type, targets };
+  if (actorId !== myId) showToast(buildActionBroadcastMsg(actorId, type, targets), '', true);
+  renderCambioBoard();
+  actionBroadcastTimer = setTimeout(() => {
+    actionBroadcast = null;
+    renderCambioBoard();
+  }, 5000);
+});
+
 socket.on('action:look-swap-reveal', ({ card, targetName, slotIndex }) => {
   actionLabelEl.textContent     = 'Look & Swap';
   actionInstruction.textContent = `${escapeHtml(targetName)}'s card ${slotIndex + 1}:`;
@@ -501,12 +589,27 @@ socket.on('cambio:called', ({ callerId, callerName }) => {
   renderCambioBoard();
 });
 callCambioBtn.addEventListener('click', () => { socket.emit('room:cambio', { code: currentRoom }); });
+undoCambioBtn.addEventListener('click', () => { socket.emit('cambio:undo', { code: currentRoom }); });
+
+socket.on('cambio:undone', ({ callerName }) => {
+  cambioState.phase = 'playing';
+  cambioState.cambioCallerId = null;
+  document.getElementById('phase-label').classList.add('hidden');
+  showToast(`${escapeHtml(callerName)} took back their Cambio call.`, '');
+  renderCambioBoard();
+});
 
 // ── Turn progression ───────────────────────────────────────────────────────────
 socket.on('turn:advance', ({ discardTop, currentTurnId, drawPileCount }) => {
   cambioState.discardTop = discardTop; cambioState.currentTurnId = currentTurnId; cambioState.drawPileCount = drawPileCount;
   if (pendingAction?.step !== 'showing-result' && pendingAction?.step !== 'showing-reveal') {
     activeActionType = null; activeActionActor = null;
+  }
+  // Clear any persistent action message now that the turn has moved on.
+  if (toastIsSticky) {
+    clearTimeout(toastTimer);
+    toastEl.classList.add('hidden');
+    toastIsSticky = false;
   }
   renderCambioBoard();
 });
@@ -561,13 +664,10 @@ function renderCard(card, slotIndex = -1, seen = false, extraClass = '') {
   </div>`;
 }
 
-function isMyCardActionTarget(slotIndex) {
+function isMyCardActionTarget() {
   if (!pendingAction) return false;
-  if (pendingAction.type === 'peek' && pendingAction.step === 'choose-card') {
-    const c = cambioState.hand[slotIndex];
-    return !c || locallyHiddenSlots.has(slotIndex);
-  }
-  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-own')       return true;
+  if (pendingAction.type === 'peek' && pendingAction.step === 'choose-card') return true;
+  if (pendingAction.type === 'blind-swap' && (pendingAction.step === 'choose-first' || pendingAction.step === 'choose-second')) return true;
   if (pendingAction.type === 'look-swap'  && pendingAction.step === 'choose-own-for-swap') return true;
   return false;
 }
@@ -575,20 +675,27 @@ function isMyCardActionTarget(slotIndex) {
 function isOpponentCardActionTarget(opponentId, slotIndex) {
   if (!pendingAction) return false;
   if (pendingAction.type === 'spy'        && pendingAction.step === 'choose-target') return true;
-  if (pendingAction.type === 'blind-swap' && pendingAction.step === 'choose-target') return true;
+  if (pendingAction.type === 'blind-swap' && (pendingAction.step === 'choose-first' || pendingAction.step === 'choose-second')) return true;
   if (pendingAction.type === 'look-swap'  && pendingAction.step === 'choose-target') return true;
   return false;
+}
+
+function isActionBroadcastTarget(playerId, slot) {
+  if (!actionBroadcast) return false;
+  return actionBroadcast.targets.some(t => t.playerId === playerId && t.slot === slot);
 }
 
 function renderMyHand() {
   const { hand, phase } = cambioState;
   document.getElementById('my-hand').innerHTML = hand.map((card, i) => {
-    const visible = card && !locallyHiddenSlots.has(i);
+    // Cards are only face-up during the initial peek phase; always face-down after.
+    const visible = phase === 'peek' && card && !locallyHiddenSlots.has(i);
     let extra = '';
     if (swapMode && localDrawnCard)             extra = ' swappable';
     else if (matchMode === 'choose-give')        extra = ' match-give';
     else if (matchMode === 'choose-card')        extra = ' match-target';
     else if (isMyCardActionTarget(i))            extra = ' action-target';
+    else if (isActionBroadcastTarget(myId, i))  extra = ' action-highlight';
     return renderCard(visible ? card : null, i, false, extra);
   }).join('');
 
@@ -603,6 +710,8 @@ function renderMyHand() {
   const isMyTurn   = cambioState.currentTurnId === myId;
   const showCambio = phase === 'playing' && isMyTurn && !localDrawnCard && !pendingAction && matchMode === 'off';
   callCambioBtn.classList.toggle('hidden', !showCambio);
+  const showUndoCambio = phase === 'final-round' && cambioState.cambioCallerId === myId;
+  undoCambioBtn.classList.toggle('hidden', !showUndoCambio);
 }
 
 function renderDrawnArea() {
@@ -649,8 +758,8 @@ function renderActionPanel() {
   switch (pendingAction.type) {
     case 'peek':       actionInstruction.textContent = 'Click one of your face-down cards to peek at it.'; break;
     case 'spy':        actionInstruction.textContent = 'Click any face-down card of an opponent to spy on it.'; break;
-    case 'blind-swap': actionInstruction.textContent = pendingAction.step === 'choose-own'
-        ? 'Choose one of your cards to swap.' : 'Now choose an opponent\'s card to swap with.'; break;
+    case 'blind-swap': actionInstruction.textContent = pendingAction.step === 'choose-first'
+        ? 'Choose any card to swap (yours or an opponent\'s).' : 'Now choose a second card to swap with it.'; break;
     case 'look-swap':  actionInstruction.textContent = pendingAction.step === 'choose-own-for-swap'
         ? 'Choose one of your cards to swap.' : 'Click an opponent\'s face-down card to look at it.'; break;
   }
@@ -698,10 +807,12 @@ function renderCambioBoard() {
     const handSize   = cambioState.opponentHandSizes?.[p.id] ?? seenSlots.length;
     const normSeen   = Array.from({ length: handSize }, (_, i) => seenSlots[i] ?? false);
     // Flip display order for 4-card hands so the opponent's "bottom" row appears at top.
-    const order = handSize === 4 ? [2, 3, 0, 1] : Array.from({ length: handSize }, (_, i) => i);
+    // 180° table rotation: slot 0 (my top-left) appears at opponent's bottom-right, etc.
+    const order = handSize === 4 ? [3, 2, 1, 0] : Array.from({ length: handSize }, (_, i) => i);
     const cardHtml = order.map(i => {
       let extra = isOpponentCardActionTarget(p.id, i) ? ' action-target' : '';
-      if (matchMode === 'choose-card' && !extra) extra = ' match-target';
+      if (matchMode === 'choose-card' && !extra)          extra = ' match-target';
+      if (!extra && isActionBroadcastTarget(p.id, i))    extra = ' action-highlight';
       return renderCard(null, i, normSeen[i] ?? false, extra);
     }).join('');
     return `

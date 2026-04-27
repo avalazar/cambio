@@ -230,15 +230,34 @@ io.on('connection', (socket) => {
     if (!room || !room.cambioState) return;
     const state = room.cambioState;
     if (!state.drawnCard || state.drawnCard.drawnBy !== socket.id) return;
-    if (slotIndex < 0 || slotIndex > 3) return;
+    if (slotIndex < 0 || slotIndex >= state.hands[socket.id].length) return;
 
     const drawnCard    = state.drawnCard.card;
     const replacedCard = state.hands[socket.id][slotIndex].card;
-    state.hands[socket.id][slotIndex] = { card: drawnCard, knownTo: new Set() };
+    // Player drew the card face-up, so they know its value after swapping it in.
+    state.hands[socket.id][slotIndex] = { card: drawnCard, knownTo: new Set([socket.id]) };
     state.drawnCard = null;
     state.discardPile.push(replacedCard);
 
     socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
+    // Broadcast so all players see which slot was swapped.
+    io.to(code).emit('action:broadcast', {
+      actorId: socket.id,
+      type: 'swap',
+      targets: [{ playerId: socket.id, slot: slotIndex }],
+    });
+
+    // The replaced (discarded) card may trigger an action, just like draw:discard.
+    const action = getCardAction(replacedCard.rank, replacedCard.suit);
+    if (action) {
+      state.pendingAction = { type: action, actingPlayerId: socket.id, lookSwapData: null };
+      io.to(code).emit('action:required', {
+        type: action, actingPlayerId: socket.id,
+        discardTop: { ...state.discardPile.at(-1) }, drawPileCount: state.deck.length,
+      });
+      console.log(`[draw:swap]   ${code} — ${room.players.get(socket.id)?.name} swapped slot ${slotIndex}, triggers ${action}`);
+      return;
+    }
     console.log(`[draw:swap]   ${code} — ${room.players.get(socket.id)?.name} swapped slot ${slotIndex}`);
     finishTurn(state, room, code);
   });
@@ -249,7 +268,19 @@ io.on('connection', (socket) => {
     if (!room?.cambioState) return;
     const state = room.cambioState;
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
+    if (state.pendingAction.waitingForDone) return; // peek/spy result showing — use action:done
     console.log(`[action:skip] ${code} — ${room.players.get(socket.id)?.name} skipped ${state.pendingAction.type}`);
+    finishTurn(state, room, code);
+  });
+
+  // ── Action: done viewing peek/spy result ───────────────────────────────────────
+  socket.on('action:done', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room?.cambioState) return;
+    const state = room.cambioState;
+    if (!state.pendingAction?.waitingForDone) return;
+    if (state.pendingAction.actingPlayerId !== socket.id) return;
+    console.log(`[action:done] ${code} — ${room.players.get(socket.id)?.name} done viewing`);
     finishTurn(state, room, code);
   });
 
@@ -260,14 +291,20 @@ io.on('connection', (socket) => {
     const state = room.cambioState;
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'peek') return;
-    if (slotIndex < 0 || slotIndex > 3) return;
+    if (slotIndex < 0 || slotIndex >= state.hands[socket.id].length) return;
 
     state.hands[socket.id][slotIndex].knownTo.add(socket.id);
     const card = state.hands[socket.id][slotIndex].card;
     socket.emit('action:peek-result', { card, slotIndex });
     socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
+    io.to(code).emit('action:broadcast', {
+      actorId: socket.id,
+      type: 'peek',
+      targets: [{ playerId: socket.id, slot: slotIndex }],
+    });
     console.log(`[action:peek] ${code} — ${room.players.get(socket.id)?.name} peeked slot ${slotIndex}`);
-    finishTurn(state, room, code);
+    // Turn advances only after the player confirms they've memorised the card.
+    state.pendingAction.waitingForDone = true;
   });
 
   // ── Action: spy (9 or 10) ──────────────────────────────────────────────────────
@@ -278,35 +315,56 @@ io.on('connection', (socket) => {
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'spy') return;
     if (!state.hands[targetId] || targetId === socket.id) return;
-    if (slotIndex < 0 || slotIndex > 3) return;
+    if (slotIndex < 0 || slotIndex >= state.hands[targetId].length) return;
 
     state.hands[targetId][slotIndex].knownTo.add(socket.id);
     const card = state.hands[targetId][slotIndex].card;
     const targetName = room.players.get(targetId)?.name ?? '?';
     socket.emit('action:spy-result', { card, targetId, targetName, slotIndex });
+    io.to(code).emit('action:broadcast', {
+      actorId: socket.id,
+      type: 'spy',
+      targets: [{ playerId: targetId, slot: slotIndex }],
+    });
     console.log(`[action:spy]  ${code} — ${room.players.get(socket.id)?.name} spied on ${targetName} slot ${slotIndex}`);
-    finishTurn(state, room, code);
+    // Turn advances only after the player confirms they've memorised the card.
+    state.pendingAction.waitingForDone = true;
   });
 
   // ── Action: blind swap (J or Q) ────────────────────────────────────────────────
-  socket.on('action:blind-swap', ({ code, mySlot, targetId, targetSlot }) => {
+  // card1 and card2 can be any two cards (own+own, own+opponent, opponent+opponent).
+  socket.on('action:blind-swap', ({ code, card1, card2 }) => {
     const room = rooms.get(code);
     if (!room?.cambioState) return;
     const state = room.cambioState;
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'blind-swap') return;
-    if (!state.hands[targetId] || targetId === socket.id) return;
-    if (mySlot < 0 || mySlot > 3 || targetSlot < 0 || targetSlot > 3) return;
 
-    const myCard    = state.hands[socket.id][mySlot].card;
-    const theirCard = state.hands[targetId][targetSlot].card;
+    const { playerId: p1, slot: s1 } = card1;
+    const { playerId: p2, slot: s2 } = card2;
+
+    // Both players must exist in this game; the two selections must be different.
+    if (!state.hands[p1] || !state.hands[p2]) return;
+    if (p1 === p2 && s1 === s2) return;
+    if (s1 < 0 || s1 >= state.hands[p1].length) return;
+    if (s2 < 0 || s2 >= state.hands[p2].length) return;
+
+    const cardA = state.hands[p1][s1].card;
+    const cardB = state.hands[p2][s2].card;
     // After a blind swap neither player knows what ended up in the swapped slots.
-    state.hands[socket.id][mySlot]    = { card: theirCard, knownTo: new Set() };
-    state.hands[targetId][targetSlot] = { card: myCard,    knownTo: new Set() };
+    state.hands[p1][s1] = { card: cardB, knownTo: new Set() };
+    state.hands[p2][s2] = { card: cardA, knownTo: new Set() };
 
-    socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
-    io.to(targetId).emit('hand:update', { hand: getPlayerView(state, targetId).hand });
-    console.log(`[action:blind-swap] ${code} — ${room.players.get(socket.id)?.name} swapped with ${room.players.get(targetId)?.name}`);
+    const affectedIds = [...new Set([p1, p2])];
+    for (const id of affectedIds) {
+      io.to(id).emit('hand:update', { hand: getPlayerView(state, id).hand });
+    }
+    io.to(code).emit('action:broadcast', {
+      actorId: socket.id,
+      type: 'blind-swap',
+      targets: [{ playerId: p1, slot: s1 }, { playerId: p2, slot: s2 }],
+    });
+    console.log(`[action:blind-swap] ${code} — ${room.players.get(socket.id)?.name} swapped ${room.players.get(p1)?.name}[${s1}] ↔ ${room.players.get(p2)?.name}[${s2}]`);
     finishTurn(state, room, code);
   });
 
@@ -318,13 +376,18 @@ io.on('connection', (socket) => {
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'look-swap') return;
     if (!state.hands[targetId] || targetId === socket.id) return;
-    if (slotIndex < 0 || slotIndex > 3) return;
+    if (slotIndex < 0 || slotIndex >= state.hands[targetId].length) return;
 
     state.hands[targetId][slotIndex].knownTo.add(socket.id);
     const card = state.hands[targetId][slotIndex].card;
     const targetName = room.players.get(targetId)?.name ?? '?';
     state.pendingAction.lookSwapData = { targetId, slotIndex, card };
     socket.emit('action:look-swap-reveal', { card, targetId, targetName, slotIndex });
+    io.to(code).emit('action:broadcast', {
+      actorId: socket.id,
+      type: 'look-swap-peek',
+      targets: [{ playerId: targetId, slot: slotIndex }],
+    });
     console.log(`[action:look-swap] ${code} — ${room.players.get(socket.id)?.name} looked at ${targetName} slot ${slotIndex}`);
   });
 
@@ -336,7 +399,7 @@ io.on('connection', (socket) => {
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'look-swap' || !state.pendingAction.lookSwapData) return;
 
-    if (mySlot >= 0 && mySlot <= 3) {
+    if (mySlot >= 0 && mySlot < state.hands[socket.id].length) {
       const { targetId, slotIndex: targetSlot, card: theirCard } = state.pendingAction.lookSwapData;
       const myCard = state.hands[socket.id][mySlot].card;
       // Acting player takes the card they looked at — they know its value.
@@ -345,6 +408,11 @@ io.on('connection', (socket) => {
       state.hands[targetId][targetSlot] = { card: myCard,    knownTo: new Set() };
       socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
       io.to(targetId).emit('hand:update', { hand: getPlayerView(state, targetId).hand });
+      io.to(code).emit('action:broadcast', {
+        actorId: socket.id,
+        type: 'look-swap',
+        targets: [{ playerId: socket.id, slot: mySlot }, { playerId: targetId, slot: targetSlot }],
+      });
       console.log(`[action:look-swap] ${code} — ${room.players.get(socket.id)?.name} swapped slot ${mySlot}`);
     } else {
       console.log(`[action:look-swap] ${code} — ${room.players.get(socket.id)?.name} skipped swap`);
@@ -371,6 +439,21 @@ io.on('connection', (socket) => {
     // Advance without counting — the Cambio caller's turn ends but doesn't
     // consume one of the other players' final turns.
     finishTurn(state, room, code, false);
+  });
+
+  // ── Undo Cambio ────────────────────────────────────────────────────────────────
+  socket.on('cambio:undo', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room?.cambioState) return;
+    const state = room.cambioState;
+    if (state.phase !== 'final-round') return;
+    if (state.cambioCallerId !== socket.id) return;
+    const callerName = room.players.get(socket.id)?.name ?? '?';
+    state.phase = 'playing';
+    state.cambioCallerId = null;
+    state.finalRoundRemaining = 0;
+    io.to(code).emit('cambio:undone', { callerId: socket.id, callerName });
+    console.log(`[cambio:undo] ${code} — ${callerName} undid Cambio`);
   });
 
   // ── Match: self (§3.5) ────────────────────────────────────────────────────────
