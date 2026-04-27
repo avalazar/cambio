@@ -6,7 +6,9 @@ const { createCambioState, getPlayerView, getCardAction } = require('./cambio');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -542,6 +544,27 @@ io.on('connection', (socket) => {
       });
       console.log(`[match:fail]  ${code} — ${room.players.get(socket.id)?.name} failed opponent-match (penalty)`);
     }
+  });
+
+  // ── Restart game (same room, same players, fresh deal) ────────────────────────
+  socket.on('room:restart', ({ code }) => {
+    const room = rooms.get(code);
+    if (!room?.cambioState) return;
+    if (room.cambioState.phase !== 'resolution') return;
+    if (!room.players.has(socket.id)) return;
+
+    const playerIds = [...room.players.keys()];
+    room.cambioState = createCambioState(playerIds);
+    const { playerOrder } = room.cambioState;
+    const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+    for (const socketId of playerOrder) {
+      const view = getPlayerView(room.cambioState, socketId);
+      io.to(socketId).emit('game:started', {
+        game: 'cambio', playerOrder: playerList,
+        myIndex: playerOrder.indexOf(socketId), ...view,
+      });
+    }
+    console.log(`[room:restart] ${code} — restarted by ${room.players.get(socket.id)?.name}`);
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────────────

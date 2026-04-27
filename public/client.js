@@ -640,7 +640,7 @@ socket.on('game:over', ({ hands, scores, playerOrder, cambioCallerId, callerPena
   }).join('');
   resolutionOverlay.classList.remove('hidden');
 });
-playAgainBtn.addEventListener('click', () => { socket.disconnect(); socket.connect(); currentRoom = null; showScreen('home-screen'); });
+playAgainBtn.addEventListener('click', () => { socket.emit('room:restart', { code: currentRoom }); });
 
 // ── Back to menu ───────────────────────────────────────────────────────────────
 backBtn.addEventListener('click', () => { socket.disconnect(); socket.connect(); currentRoom = null; showScreen('home-screen'); });
