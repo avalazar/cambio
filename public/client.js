@@ -35,6 +35,10 @@ let matchOpponentTarget = null; // { targetId, targetSlot }
 let actionBroadcast = null; // { actorId, type, targets: [{playerId, slot}] }
 let actionBroadcastTimer = null;
 
+// Undo-Cambio button is only shown for 5 s after Cambio is called.
+let undoCambioVisible = false;
+let undoCambioTimer   = null;
+
 const GAME_LABELS  = { cambio: 'Cambio', 'un-solitaire': 'Un-Solitaire' };
 const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
 const RED_SUITS    = new Set(['hearts', 'diamonds']);
@@ -236,6 +240,9 @@ function resetGameState() {
   clearTimeout(toastTimer);
   toastIsSticky = false;
   toastEl.classList.add('hidden');
+  undoCambioVisible = false;
+  clearTimeout(undoCambioTimer);
+  undoCambioTimer = null;
 }
 
 // ── Game started ───────────────────────────────────────────────────────────────
@@ -586,6 +593,11 @@ socket.on('cambio:called', ({ callerId, callerName }) => {
   const phaseEl = document.getElementById('phase-label');
   phaseEl.textContent = `${escapeHtml(callerName)} called Cambio — final round!`;
   phaseEl.classList.remove('hidden');
+  if (callerId === myId) {
+    undoCambioVisible = true;
+    clearTimeout(undoCambioTimer);
+    undoCambioTimer = setTimeout(() => { undoCambioVisible = false; renderMyHand(); }, 5000);
+  }
   renderCambioBoard();
 });
 callCambioBtn.addEventListener('click', () => { socket.emit('room:cambio', { code: currentRoom }); });
@@ -594,6 +606,9 @@ undoCambioBtn.addEventListener('click', () => { socket.emit('cambio:undo', { cod
 socket.on('cambio:undone', ({ callerName }) => {
   cambioState.phase = 'playing';
   cambioState.cambioCallerId = null;
+  undoCambioVisible = false;
+  clearTimeout(undoCambioTimer);
+  undoCambioTimer = null;
   document.getElementById('phase-label').classList.add('hidden');
   showToast(`${escapeHtml(callerName)} took back their Cambio call.`, '');
   renderCambioBoard();
@@ -710,7 +725,7 @@ function renderMyHand() {
   const isMyTurn   = cambioState.currentTurnId === myId;
   const showCambio = phase === 'playing' && isMyTurn && !localDrawnCard && !pendingAction && matchMode === 'off';
   callCambioBtn.classList.toggle('hidden', !showCambio);
-  const showUndoCambio = phase === 'final-round' && cambioState.cambioCallerId === myId;
+  const showUndoCambio = undoCambioVisible && phase === 'final-round' && cambioState.cambioCallerId === myId;
   undoCambioBtn.classList.toggle('hidden', !showUndoCambio);
 }
 
