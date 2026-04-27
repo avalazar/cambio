@@ -86,10 +86,12 @@ function createCambioState(playerIds) {
  * just the knowledge map, so the viewer can show a "seen" indicator.
  */
 function getPlayerView(state, playerId) {
-  const opponentsSeen = {};
+  const opponentsSeen      = {};
+  const opponentHandSizes  = {};
   for (const id of state.playerOrder) {
     if (id === playerId) continue;
-    opponentsSeen[id] = state.hands[id].map(slot => slot.knownTo.has(id));
+    opponentsSeen[id]     = state.hands[id].map(slot => slot.knownTo.has(id));
+    opponentHandSizes[id] = state.hands[id].length;
   }
 
   return {
@@ -101,7 +103,17 @@ function getPlayerView(state, playerId) {
     currentTurnId: state.playerOrder[state.currentTurnIndex],
     phase: state.phase,
     opponentsSeen,
+    opponentHandSizes,
   };
 }
 
-module.exports = { createCambioState, getPlayerView };
+// Returns the action triggered when this card is discarded after being drawn, or null.
+function getCardAction(rank, suit) {
+  if (rank === '7' || rank === '8') return 'peek';
+  if (rank === '9' || rank === '10') return 'spy';
+  if (rank === 'J' || rank === 'Q') return 'blind-swap';
+  if (rank === 'K' && !RED_SUITS.has(suit)) return 'look-swap';
+  return null;
+}
+
+module.exports = { createCambioState, getPlayerView, getCardAction };

@@ -129,6 +129,7 @@
 
     <!-- ── 5. Game screen ─────────────────────────────────────── -->
     <div id="game-screen" class="screen hidden">
+      <div id="toast" class="toast hidden"></div>
 
       <div class="game-top-bar">
         <button id="back-btn" class="back-btn">← Menu</button>
@@ -164,12 +165,45 @@
           </div>
         </div>
 
+        <!-- Match button — available out of turn any time during playing/final-round -->
+        <div id="match-row" class="match-row hidden">
+          <p id="match-mode-text" class="match-mode-text"></p>
+          <button id="match-btn" class="match-btn">Match Discard</button>
+        </div>
+
+        <!-- Action panel — shown to the acting player during an action card -->
+        <div id="action-panel" class="action-panel hidden">
+          <p id="action-label" class="action-label"></p>
+          <p id="action-instruction" class="action-instruction"></p>
+          <div id="action-result-area" class="action-result-area hidden">
+            <div id="action-result-card"></div>
+            <p id="action-result-text" class="action-result-text"></p>
+          </div>
+          <div class="action-panel-buttons">
+            <button id="action-look-swap-btn" class="hidden">Swap with my card</button>
+            <button id="action-look-swap-skip-btn" class="secondary hidden">Skip swap</button>
+            <button id="action-done-btn" class="hidden">Done</button>
+            <button id="action-skip-btn" class="secondary">Skip action</button>
+          </div>
+        </div>
+
         <div class="my-hand-area">
           <p class="hand-label" id="hand-label-text">Your Cards</p>
           <div id="my-hand" class="card-grid-2x2"></div>
           <!-- Peek-phase controls — mutually exclusive states -->
           <button id="done-peeking-btn" class="done-peeking-btn hidden">Done Peeking</button>
           <p id="peek-wait-text" class="peek-wait-text hidden">Waiting for other players…</p>
+          <button id="call-cambio-btn" class="call-cambio-btn hidden">Call Cambio</button>
+        </div>
+      </div>
+
+      <!-- Resolution overlay -->
+      <div id="resolution-overlay" class="resolution-overlay hidden">
+        <div class="resolution-panel">
+          <h2>Game Over</h2>
+          <p id="resolution-subtitle" class="resolution-subtitle"></p>
+          <div id="resolution-players" class="resolution-players"></div>
+          <button id="play-again-btn">Play Again</button>
         </div>
       </div>
 

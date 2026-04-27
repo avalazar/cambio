@@ -17,7 +17,7 @@ body {
 }
 
 .screen { text-align: center; }
-.hidden { display: none; }
+.hidden { display: none !important; }
 
 h1 {
   font-size: 2.5rem;
@@ -589,6 +589,238 @@ h2 {
   border-color: #4caf50;
   box-shadow: 0 0 10px rgba(76, 175, 80, 0.55);
 }
+
+/* ── Action panel ──────────────────────────────────────────── */
+.action-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.85rem 1.25rem;
+  background: rgba(233, 69, 96, 0.06);
+  border: 1px solid rgba(233, 69, 96, 0.3);
+  border-radius: 12px;
+  width: 100%;
+}
+.action-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #e94560;
+  font-weight: 600;
+}
+.action-instruction {
+  font-size: 0.85rem;
+  color: #ccc;
+  text-align: center;
+}
+.action-result-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.action-result-text {
+  font-size: 0.78rem;
+  color: #aaa;
+}
+.action-panel-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.action-panel-buttons button {
+  padding: 0.45rem 1rem;
+  font-size: 0.82rem;
+}
+
+/* Cards highlighted as action targets */
+.card.action-target {
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  border-color: #e94560;
+  box-shadow: 0 0 10px rgba(233, 69, 96, 0.55);
+}
+.card.action-target:hover {
+  box-shadow: 0 0 16px rgba(233, 69, 96, 0.85);
+}
+
+/* ── Match discard row ─────────────────────────────────────── */
+.match-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+.match-mode-text {
+  font-size: 0.8rem;
+  color: #f0c040;
+  text-align: center;
+}
+.match-btn {
+  padding: 0.4rem 1.1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: transparent;
+  border: 2px solid #555;
+  color: #aaa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.match-btn:hover { border-color: #f0c040; color: #f0c040; background: transparent; }
+.match-btn.active { border-color: #f0c040; color: #f0c040; background: rgba(240,192,64,0.08); }
+
+/* Cards highlighted as match candidates (gold) */
+.card.match-target {
+  cursor: pointer;
+  border-color: #f0c040;
+  box-shadow: 0 0 10px rgba(240, 192, 64, 0.6);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.card.match-target:hover { box-shadow: 0 0 16px rgba(240, 192, 64, 0.9); }
+
+/* Cards to give away during opponent match (green) */
+.card.match-give {
+  cursor: pointer;
+  border-color: #4caf50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.55);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.card.match-give:hover { box-shadow: 0 0 16px rgba(76, 175, 80, 0.8); }
+
+/* ── Toast notification ────────────────────────────────────── */
+.toast {
+  position: absolute;
+  top: 2.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #16213e;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.82rem;
+  color: #e0e0e0;
+  white-space: nowrap;
+  z-index: 20;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.toast.success { border-color: #4caf50; color: #4caf50; }
+.toast.penalty { border-color: #e94560; color: #e94560; }
+
+/* ── Call Cambio button ────────────────────────────────────── */
+.call-cambio-btn {
+  margin-top: 0.4rem;
+  padding: 0.5rem 1.4rem;
+  background: transparent;
+  border: 2px solid #e94560;
+  color: #e94560;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-radius: 8px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.call-cambio-btn:hover {
+  background: rgba(233, 69, 96, 0.1);
+  box-shadow: 0 0 8px rgba(233, 69, 96, 0.4);
+}
+
+/* ── Final-round banner ────────────────────────────────────── */
+.final-round-banner {
+  font-size: 0.82rem;
+  color: #e94560;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+/* ── Resolution overlay ────────────────────────────────────── */
+.resolution-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 26, 46, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  z-index: 10;
+}
+.resolution-panel {
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 14px;
+  padding: 1.75rem 1.5rem;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+.resolution-subtitle {
+  font-size: 0.88rem;
+  color: #aaa;
+  text-align: center;
+}
+.resolution-players {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+}
+.resolution-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.resolution-player-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.winner-badge {
+  font-size: 0.72rem;
+  background: #2a5a3a;
+  border: 1px solid #4caf50;
+  color: #4caf50;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-weight: 700;
+}
+.resolution-hand {
+  display: grid;
+  grid-template-columns: repeat(4, 54px);
+  gap: 5px;
+}
+.resolution-hand .card {
+  width: 54px;
+  height: 76px;
+  border-radius: 6px;
+}
+.resolution-hand .card-tl,
+.resolution-hand .card-br { font-size: 0.7rem; }
+.resolution-hand .card-suit { font-size: 1.1rem; }
+.resolution-score {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+.resolution-penalty {
+  font-size: 0.75rem;
+  color: #e94560;
+}
+
+/* game-screen needs position:relative for overlay */
+#game-screen { position: relative; }
 
 /* ── Peek phase controls ───────────────────────────────────── */
 .done-peeking-btn {
