@@ -90,14 +90,16 @@ function getPlayerView(state, playerId) {
   const opponentHandSizes  = {};
   for (const id of state.playerOrder) {
     if (id === playerId) continue;
-    opponentsSeen[id]     = state.hands[id].map(slot => slot.knownTo.has(id));
+    // null = removed/empty slot, true/false = whether owner has seen it
+    opponentsSeen[id]     = state.hands[id].map(slot => slot.empty ? null : slot.knownTo.has(id));
     opponentHandSizes[id] = state.hands[id].length;
   }
 
   return {
-    hand: state.hands[playerId].map(slot =>
-      slot.knownTo.has(playerId) ? { ...slot.card } : null
-    ),
+    hand: state.hands[playerId].map(slot => {
+      if (slot.empty) return { empty: true };
+      return slot.knownTo.has(playerId) ? { ...slot.card } : null;
+    }),
     discardTop: { ...state.discardPile.at(-1) },
     drawPileCount: state.deck.length,
     currentTurnId: state.playerOrder[state.currentTurnIndex],

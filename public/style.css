@@ -344,7 +344,8 @@ h2 {
 .game-top-bar {
   width: 100%;
   display: flex;
-  justify-content: flex-start;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 0.75rem;
 }
 
@@ -360,6 +361,20 @@ h2 {
   transition: border-color 0.15s, color 0.15s;
 }
 .back-btn:hover { border-color: #777; color: #bbb; background: transparent; }
+
+.log-toggle-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #777;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.log-toggle-btn:hover { border-color: #777; color: #bbb; background: transparent; }
+.log-toggle-btn.active { border-color: #64b5f6; color: #64b5f6; }
 
 /* ── Cambio board layout ───────────────────────────────────── */
 .cambio-board {
@@ -883,4 +898,47 @@ h2 {
   font-size: 0.82rem;
   color: #666;
   margin-top: 0.25rem;
+}
+
+/* ── Empty card slot (tombstone after match) ───────────────── */
+.card.empty-slot {
+  background: transparent;
+  border: 2px dashed #333;
+  box-shadow: none;
+}
+
+/* ── Game log panel ────────────────────────────────────────── */
+.game-log-panel {
+  position: fixed;
+  top: 4rem;
+  right: 1rem;
+  width: 190px;
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  background: rgba(22, 33, 62, 0.95);
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  z-index: 15;
+}
+.log-heading {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+.log-entry {
+  font-size: 0.72rem;
+  color: #666;
+  padding: 0.22rem 0;
+  border-bottom: 1px solid #222;
+  line-height: 1.35;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-empty {
+  font-size: 0.72rem;
+  color: #444;
+  text-align: center;
+  padding: 0.5rem 0;
 }

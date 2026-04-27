@@ -31,9 +31,13 @@ let matchMode = 'off';
 let matchOpponentTarget = null; // { targetId, targetSlot }
 
 // Broadcast highlight: which cards are being targeted by the current action.
-// Shown to all players for 3 seconds after an action resolves.
+// Clears after the turn following the action ends (2 turn:advance events).
 let actionBroadcast = null; // { actorId, type, targets: [{playerId, slot}] }
-let actionBroadcastTimer = null;
+let actionBroadcastTurnCount = 0;
+
+// Game log — entries appended on action:broadcast, match, and cambio events.
+let gameLog    = [];
+let logVisible = false;
 
 // Undo-Cambio button is only shown for 5 s after Cambio is called.
 let undoCambioVisible = false;
@@ -234,9 +238,10 @@ function resetGameState() {
   activeActionActor   = null;
   matchMode           = 'off';
   matchOpponentTarget = null;
-  actionBroadcast     = null;
-  clearTimeout(actionBroadcastTimer);
-  actionBroadcastTimer = null;
+  actionBroadcast          = null;
+  actionBroadcastTurnCount = 0;
+  gameLog                  = [];
+  logVisible               = false;
   clearTimeout(toastTimer);
   toastIsSticky = false;
   toastEl.classList.add('hidden');
@@ -315,6 +320,7 @@ document.getElementById('swap-drawn-btn').addEventListener('click', () => {
 document.getElementById('my-hand').addEventListener('click', (e) => {
   const card = e.target.closest('.card[data-slot]');
   if (!card) return;
+  if (card.classList.contains('empty-slot')) return;
   const slotIndex = parseInt(card.dataset.slot, 10);
 
   // Swap mode: swap drawn card into this slot.
@@ -372,6 +378,7 @@ document.getElementById('my-hand').addEventListener('click', (e) => {
 document.getElementById('opponents-area').addEventListener('click', (e) => {
   const card     = e.target.closest('.card[data-slot]');
   if (!card) return;
+  if (card.classList.contains('empty-slot')) return;
   const opponent = e.target.closest('[data-player-id]');
   if (!opponent) return;
   const targetId  = opponent.dataset.playerId;
@@ -430,8 +437,13 @@ socket.on('match:success', ({ playerId, targetId, discardTop, drawPileCount, opp
   cambioState.discardTop    = discardTop;
   cambioState.drawPileCount = drawPileCount;
   if (opponentHandSizes) mergeOpponentHandSizes(opponentHandSizes);
-  const name = cambioState.playerOrder.find(p => p.id === playerId)?.name ?? '?';
-  const msg  = playerId === myId ? 'Match! Card discarded.' : `${escapeHtml(name)} matched a card!`;
+  const name       = cambioState.playerOrder.find(p => p.id === playerId)?.name ?? '?';
+  const targetName = targetId ? (cambioState.playerOrder.find(p => p.id === targetId)?.name ?? '?') : null;
+  const msg     = playerId === myId ? 'Match! Card discarded.' : `${escapeHtml(name)} matched a card!`;
+  const logMsg  = targetId
+    ? `${escapeHtml(name)} matched one of ${escapeHtml(targetName)}'s cards`
+    : `${escapeHtml(name)} matched their own card`;
+  addLogEntry(logMsg);
   showToast(msg, 'success');
   renderCambioBoard();
 });
@@ -441,6 +453,7 @@ socket.on('match:penalty', ({ playerId, drawPileCount, opponentHandSizes }) => {
   if (opponentHandSizes) mergeOpponentHandSizes(opponentHandSizes);
   const name = cambioState.playerOrder.find(p => p.id === playerId)?.name ?? '?';
   const msg  = playerId === myId ? 'Wrong match — penalty card added!' : `${escapeHtml(name)} bad match — penalty!`;
+  addLogEntry(`${escapeHtml(name)} mismatch — penalty card added`);
   showToast(msg, 'penalty');
   renderCambioBoard();
 });
@@ -562,16 +575,14 @@ function buildActionBroadcastMsg(actorId, type, targets) {
   }
 }
 
-// Shown to ALL players — highlights which cards were targeted for 5 seconds.
+// Shown to ALL players — highlights targeted cards until the turn after it ends.
 socket.on('action:broadcast', ({ actorId, type, targets }) => {
-  clearTimeout(actionBroadcastTimer);
   actionBroadcast = { actorId, type, targets };
-  if (actorId !== myId) showToast(buildActionBroadcastMsg(actorId, type, targets), '', true);
+  actionBroadcastTurnCount = 0;
+  const msg = buildActionBroadcastMsg(actorId, type, targets);
+  addLogEntry(msg);
+  if (actorId !== myId) showToast(msg, '', true);
   renderCambioBoard();
-  actionBroadcastTimer = setTimeout(() => {
-    actionBroadcast = null;
-    renderCambioBoard();
-  }, 5000);
 });
 
 socket.on('action:look-swap-reveal', ({ card, targetName, slotIndex }) => {
@@ -593,6 +604,7 @@ socket.on('cambio:called', ({ callerId, callerName }) => {
   const phaseEl = document.getElementById('phase-label');
   phaseEl.textContent = `${escapeHtml(callerName)} called Cambio — final round!`;
   phaseEl.classList.remove('hidden');
+  addLogEntry(`${escapeHtml(callerName)} called Cambio!`);
   if (callerId === myId) {
     undoCambioVisible = true;
     clearTimeout(undoCambioTimer);
@@ -610,6 +622,7 @@ socket.on('cambio:undone', ({ callerName }) => {
   clearTimeout(undoCambioTimer);
   undoCambioTimer = null;
   document.getElementById('phase-label').classList.add('hidden');
+  addLogEntry(`${escapeHtml(callerName)} took back their Cambio call`);
   showToast(`${escapeHtml(callerName)} took back their Cambio call.`, '');
   renderCambioBoard();
 });
@@ -625,6 +638,12 @@ socket.on('turn:advance', ({ discardTop, currentTurnId, drawPileCount }) => {
     clearTimeout(toastTimer);
     toastEl.classList.add('hidden');
     toastIsSticky = false;
+  }
+  // Keep action highlight through the next player's full turn, then clear.
+  actionBroadcastTurnCount++;
+  if (actionBroadcastTurnCount >= 2) {
+    actionBroadcast = null;
+    actionBroadcastTurnCount = 0;
   }
   renderCambioBoard();
 });
@@ -660,14 +679,37 @@ playAgainBtn.addEventListener('click', () => { socket.emit('room:restart', { cod
 // ── Back to menu ───────────────────────────────────────────────────────────────
 backBtn.addEventListener('click', () => { socket.disconnect(); socket.connect(); currentRoom = null; showScreen('home-screen'); });
 
+const logToggleBtn = document.getElementById('log-toggle-btn');
+logToggleBtn.addEventListener('click', () => {
+  logVisible = !logVisible;
+  logToggleBtn.textContent = logVisible ? 'Hide Log' : 'Log';
+  logToggleBtn.classList.toggle('active', logVisible);
+  renderGameLog();
+});
+
 // ── Cambio rendering ───────────────────────────────────────────────────────────
 
-function renderCard(card, slotIndex = -1, seen = false, extraClass = '') {
+function addLogEntry(msg) {
+  gameLog.push(msg);
+  if (gameLog.length > 60) gameLog.shift();
+  renderGameLog();
+}
+
+function renderGameLog() {
+  const logPanel   = document.getElementById('game-log-panel');
+  const logContent = document.getElementById('game-log-content');
+  if (!logPanel || !logContent) return;
+  logPanel.classList.toggle('hidden', !logVisible);
+  logContent.innerHTML = gameLog.length === 0
+    ? '<p class="log-empty">No actions yet.</p>'
+    : gameLog.slice().reverse().map(e => `<p class="log-entry">${escapeHtml(e)}</p>`).join('');
+}
+
+function renderCard(card, slotIndex = -1, extraClass = '') {
   const slotAttr = slotIndex >= 0 ? ` data-slot="${slotIndex}"` : '';
   if (!card) {
     return `<div class="card face-down${extraClass}"${slotAttr}>
       <div class="card-back-inner"></div>
-      ${seen ? '<div class="seen-dot"></div>' : ''}
     </div>`;
   }
   const colorClass = RED_SUITS.has(card.suit) ? 'red' : 'black';
@@ -703,6 +745,7 @@ function isActionBroadcastTarget(playerId, slot) {
 function renderMyHand() {
   const { hand, phase } = cambioState;
   document.getElementById('my-hand').innerHTML = hand.map((card, i) => {
+    if (card?.empty) return `<div class="card empty-slot" data-slot="${i}"></div>`;
     // Cards are only face-up during the initial peek phase; always face-down after.
     const visible = phase === 'peek' && card && !locallyHiddenSlots.has(i);
     let extra = '';
@@ -711,7 +754,7 @@ function renderMyHand() {
     else if (matchMode === 'choose-card')        extra = ' match-target';
     else if (isMyCardActionTarget(i))            extra = ' action-target';
     else if (isActionBroadcastTarget(myId, i))  extra = ' action-highlight';
-    return renderCard(visible ? card : null, i, false, extra);
+    return renderCard(visible ? card : null, i, extra);
   }).join('');
 
   const donePeekingBtn = document.getElementById('done-peeking-btn');
@@ -820,15 +863,19 @@ function renderCambioBoard() {
   document.getElementById('opponents-area').innerHTML = opponents.map(p => {
     const seenSlots  = cambioState.opponentsSeen?.[p.id] ?? [];
     const handSize   = cambioState.opponentHandSizes?.[p.id] ?? seenSlots.length;
-    const normSeen   = Array.from({ length: handSize }, (_, i) => seenSlots[i] ?? false);
+    // Preserve null (empty tombstone slot) — don't coerce to false.
+    const normSeen   = Array.from({ length: handSize }, (_, i) => {
+      const v = seenSlots[i]; return v === undefined ? false : v;
+    });
     // Flip display order for 4-card hands so the opponent's "bottom" row appears at top.
     // 180° table rotation: slot 0 (my top-left) appears at opponent's bottom-right, etc.
     const order = handSize === 4 ? [3, 2, 1, 0] : Array.from({ length: handSize }, (_, i) => i);
     const cardHtml = order.map(i => {
+      if (normSeen[i] === null) return `<div class="card empty-slot" data-slot="${i}"></div>`;
       let extra = isOpponentCardActionTarget(p.id, i) ? ' action-target' : '';
       if (matchMode === 'choose-card' && !extra)          extra = ' match-target';
       if (!extra && isActionBroadcastTarget(p.id, i))    extra = ' action-highlight';
-      return renderCard(null, i, normSeen[i] ?? false, extra);
+      return renderCard(null, i, extra);
     }).join('');
     return `
       <div class="opponent${p.id === currentTurnId ? ' active-turn' : ''}" data-player-id="${p.id}">

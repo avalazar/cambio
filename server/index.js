@@ -56,7 +56,7 @@ function triggerResolution(room, code) {
 
   const hands = {}, scores = {};
   for (const id of state.playerOrder) {
-    hands[id] = state.hands[id].map(slot => ({ ...slot.card }));
+    hands[id] = state.hands[id].filter(s => !s.empty).map(slot => ({ ...slot.card }));
     scores[id] = hands[id].reduce((sum, c) => sum + c.value, 0);
   }
 
@@ -233,6 +233,7 @@ io.on('connection', (socket) => {
     const state = room.cambioState;
     if (!state.drawnCard || state.drawnCard.drawnBy !== socket.id) return;
     if (slotIndex < 0 || slotIndex >= state.hands[socket.id].length) return;
+    if (state.hands[socket.id][slotIndex].empty) return;
 
     const drawnCard    = state.drawnCard.card;
     const replacedCard = state.hands[socket.id][slotIndex].card;
@@ -294,6 +295,7 @@ io.on('connection', (socket) => {
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'peek') return;
     if (slotIndex < 0 || slotIndex >= state.hands[socket.id].length) return;
+    if (state.hands[socket.id][slotIndex].empty) return;
 
     state.hands[socket.id][slotIndex].knownTo.add(socket.id);
     const card = state.hands[socket.id][slotIndex].card;
@@ -318,6 +320,7 @@ io.on('connection', (socket) => {
     if (state.pendingAction.type !== 'spy') return;
     if (!state.hands[targetId] || targetId === socket.id) return;
     if (slotIndex < 0 || slotIndex >= state.hands[targetId].length) return;
+    if (state.hands[targetId][slotIndex].empty) return;
 
     state.hands[targetId][slotIndex].knownTo.add(socket.id);
     const card = state.hands[targetId][slotIndex].card;
@@ -351,6 +354,7 @@ io.on('connection', (socket) => {
     if (s1 < 0 || s1 >= state.hands[p1].length) return;
     if (s2 < 0 || s2 >= state.hands[p2].length) return;
 
+    if (state.hands[p1][s1].empty || state.hands[p2][s2].empty) return;
     const cardA = state.hands[p1][s1].card;
     const cardB = state.hands[p2][s2].card;
     // After a blind swap neither player knows what ended up in the swapped slots.
@@ -379,6 +383,7 @@ io.on('connection', (socket) => {
     if (state.pendingAction.type !== 'look-swap') return;
     if (!state.hands[targetId] || targetId === socket.id) return;
     if (slotIndex < 0 || slotIndex >= state.hands[targetId].length) return;
+    if (state.hands[targetId][slotIndex].empty) return;
 
     state.hands[targetId][slotIndex].knownTo.add(socket.id);
     const card = state.hands[targetId][slotIndex].card;
@@ -401,7 +406,7 @@ io.on('connection', (socket) => {
     if (!state.pendingAction || state.pendingAction.actingPlayerId !== socket.id) return;
     if (state.pendingAction.type !== 'look-swap' || !state.pendingAction.lookSwapData) return;
 
-    if (mySlot >= 0 && mySlot < state.hands[socket.id].length) {
+    if (mySlot >= 0 && mySlot < state.hands[socket.id].length && !state.hands[socket.id][mySlot].empty) {
       const { targetId, slotIndex: targetSlot, card: theirCard } = state.pendingAction.lookSwapData;
       const myCard = state.hands[socket.id][mySlot].card;
       // Acting player takes the card they looked at — they know its value.
@@ -471,10 +476,11 @@ io.on('connection', (socket) => {
 
     const discardValue = state.discardPile.at(-1).value;
     const slot = myHand[slotIndex];
+    if (slot.empty) return;
 
     if (slot.card.value === discardValue) {
       state.discardPile.push(slot.card);
-      myHand.splice(slotIndex, 1);
+      myHand[slotIndex] = { card: null, knownTo: new Set(), empty: true };
       socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });
       const sizes = buildHandSizes(state);
       io.to(code).emit('match:success', {
@@ -515,13 +521,15 @@ io.on('connection', (socket) => {
 
     const discardValue = state.discardPile.at(-1).value;
     const targetCard   = targetHand[targetSlot].card;
+    if (targetHand[targetSlot].empty || myHand[mySlot].empty) return;
 
     if (targetCard.value === discardValue) {
-      // Discard the opponent's matched card.
+      // Discard the opponent's matched card; tombstone keeps slot positions stable.
       state.discardPile.push(targetCard);
-      targetHand.splice(targetSlot, 1);
+      targetHand[targetSlot] = { card: null, knownTo: new Set(), empty: true };
       // Give one of the player's cards to the opponent (neither player knows it).
-      const givenCard = myHand.splice(mySlot, 1)[0];
+      const givenCard = myHand[mySlot];
+      myHand[mySlot] = { card: null, knownTo: new Set(), empty: true };
       targetHand.push({ card: givenCard.card, knownTo: new Set() });
 
       socket.emit('hand:update', { hand: getPlayerView(state, socket.id).hand });

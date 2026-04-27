@@ -133,6 +133,7 @@
 
       <div class="game-top-bar">
         <button id="back-btn" class="back-btn">← Menu</button>
+        <button id="log-toggle-btn" class="log-toggle-btn">Log</button>
       </div>
 
       <!-- Cambio board (shown when game === 'cambio') -->
@@ -196,6 +197,12 @@
           <button id="call-cambio-btn" class="call-cambio-btn hidden">Call Cambio</button>
           <button id="undo-cambio-btn" class="undo-cambio-btn hidden">Undo Cambio!</button>
         </div>
+      </div>
+
+      <!-- Game log panel (fixed right sidebar, toggled by Log button) -->
+      <div id="game-log-panel" class="game-log-panel hidden">
+        <p class="log-heading">Game Log</p>
+        <div id="game-log-content" class="game-log-content"></div>
       </div>
 
       <!-- Resolution overlay -->
