@@ -66,17 +66,21 @@ const connectionStatus = document.getElementById('connection-status');
 const gotoCreateBtn    = document.getElementById('goto-create-btn');
 const gotoJoinBtn      = document.getElementById('goto-join-btn');
 
-const backFromCreate   = document.getElementById('back-from-create');
-const createForm       = document.getElementById('create-form');
-const createNameInput  = document.getElementById('create-name-input');
-const createError      = document.getElementById('create-error');
+const backFromName     = document.getElementById('back-from-name');
+const nameForm         = document.getElementById('name-form');
+const nameInput        = document.getElementById('name-input');
+const nameError        = document.getElementById('name-error');
+const nameScreenHeading  = document.getElementById('name-screen-heading');
+const nameScreenSubtitle = document.getElementById('name-screen-subtitle');
+const nameSubmitBtn    = document.getElementById('name-submit-btn');
 
 const backFromJoin     = document.getElementById('back-from-join');
-const joinNameInput    = document.getElementById('join-name-input');
 const roomsList        = document.getElementById('rooms-list');
 const joinCodeInput    = document.getElementById('join-code-input');
 const joinCodeBtn      = document.getElementById('join-code-btn');
 const joinError        = document.getElementById('join-error');
+
+let pendingRoomAction = null; // { type: 'create' } | { type: 'join', code: 'XXXX' }
 
 const roomCodeDisplay  = document.getElementById('room-code-display');
 const lobbyStatus      = document.getElementById('lobby-status');
@@ -157,45 +161,71 @@ socket.on('disconnect', () => {
   gotoCreateBtn.disabled = true; gotoJoinBtn.disabled = true;
 });
 
-// ── Home navigation ────────────────────────────────────────────────────────────
-gotoCreateBtn.addEventListener('click', () => { clearError(createError); showScreen('create-screen'); createNameInput.focus(); });
-gotoJoinBtn.addEventListener('click',   () => { clearError(joinError); showScreen('join-screen'); socket.emit('rooms:get'); joinNameInput.focus(); });
-backFromCreate.addEventListener('click', () => showScreen('home-screen'));
-backFromJoin.addEventListener('click',   () => showScreen('home-screen'));
+// ── Name screen helpers ────────────────────────────────────────────────────────
+function showNameScreen(action) {
+  pendingRoomAction = action;
+  clearError(nameError);
+  nameInput.value = '';
+  if (action.type === 'create') {
+    nameScreenHeading.textContent  = 'Create a Room';
+    nameScreenSubtitle.textContent = 'Choose a name to display to other players.';
+    nameSubmitBtn.textContent      = 'Create Room';
+  } else {
+    nameScreenHeading.textContent  = 'Join Room ' + action.code;
+    nameScreenSubtitle.textContent = 'Choose a name to display to other players.';
+    nameSubmitBtn.textContent      = 'Join Room';
+  }
+  showScreen('name-screen');
+  nameInput.focus();
+}
 
-// ── Create room ────────────────────────────────────────────────────────────────
-createForm.addEventListener('submit', (e) => {
+// ── Home navigation ────────────────────────────────────────────────────────────
+gotoCreateBtn.addEventListener('click', () => showNameScreen({ type: 'create' }));
+gotoJoinBtn.addEventListener('click',   () => { clearError(joinError); showScreen('join-screen'); socket.emit('rooms:get'); });
+backFromName.addEventListener('click',  () => {
+  if (pendingRoomAction?.type === 'join') showScreen('join-screen');
+  else showScreen('home-screen');
+});
+backFromJoin.addEventListener('click',  () => showScreen('home-screen'));
+
+// ── Name form submit (handles both create and join) ────────────────────────────
+nameForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const name = createNameInput.value.trim();
-  if (!name) { showError(createError, 'Please enter your name.'); return; }
-  clearError(createError);
-  socket.emit('room:create', { name });
+  const name = nameInput.value.trim();
+  if (!name) { showError(nameError, 'Please enter your name.'); return; }
+  clearError(nameError);
+  if (pendingRoomAction?.type === 'create') {
+    socket.emit('room:create', { name });
+  } else if (pendingRoomAction?.type === 'join') {
+    socket.emit('room:join', { name, code: pendingRoomAction.code });
+  }
 });
 socket.on('room:created', ({ code, playerId, name }) => {
   myId = playerId; myName = name; currentRoom = code;
   roomCodeDisplay.textContent = code; showScreen('lobby-screen');
-});
-
-// ── Join room ──────────────────────────────────────────────────────────────────
-function doJoin(code) {
-  const name = joinNameInput.value.trim();
-  if (!name) { showError(joinError, 'Please enter your name first.'); return; }
-  clearError(joinError); socket.emit('room:join', { name, code });
-}
-roomsList.addEventListener('click', (e) => { const btn = e.target.closest('.room-join-btn'); if (btn) doJoin(btn.dataset.code); });
-joinCodeInput.addEventListener('input', () => { joinCodeInput.value = joinCodeInput.value.toUpperCase(); });
-joinCodeBtn.addEventListener('click', () => {
-  const code = joinCodeInput.value.trim().toUpperCase();
-  if (code.length !== 4) { showError(joinError, 'Room code must be 4 letters.'); return; }
-  doJoin(code);
 });
 socket.on('room:joined', ({ code, playerId, name }) => {
   myId = playerId; myName = name; currentRoom = code;
   roomCodeDisplay.textContent = code; showScreen('lobby-screen');
 });
 socket.on('room:error', ({ message }) => {
-  const joinVisible = !document.getElementById('join-screen').classList.contains('hidden');
-  showError(joinVisible ? joinError : createError, message);
+  showError(nameError, message);
+});
+
+// ── Join room ──────────────────────────────────────────────────────────────────
+function goToNameForJoin(code) {
+  clearError(joinError);
+  showNameScreen({ type: 'join', code });
+}
+roomsList.addEventListener('click', (e) => {
+  const btn = e.target.closest('.room-join-btn');
+  if (btn) goToNameForJoin(btn.dataset.code);
+});
+joinCodeInput.addEventListener('input', () => { joinCodeInput.value = joinCodeInput.value.toUpperCase(); });
+joinCodeBtn.addEventListener('click', () => {
+  const code = joinCodeInput.value.trim().toUpperCase();
+  if (code.length !== 4) { showError(joinError, 'Room code must be 4 letters.'); return; }
+  goToNameForJoin(code);
 });
 
 // ── Live room list ─────────────────────────────────────────────────────────────
@@ -249,17 +279,58 @@ function resetGameState() {
   cambioConfirmPending = false;
 }
 
+const usBoard = document.getElementById('unsolitaire-board');
+
+// ── Un-Solitaire state ─────────────────────────────────────────────────────────
+let usState        = null; // latest view from server
+let usPlayerOrder  = [];   // [{id, name}, ...]
+let usMyId         = null;
+let usOriginalHand = [];   // deal order — sort indices always reference this, never the server-reordered hand
+let usSortOrder    = [];   // permutation of usOriginalHand indices
+let usSelected     = null; // { type: 'tableau'|'hand'|'discard', colIndex?, cardIndex? }
+let usDragSrc      = null; // { colIdx, cardIdx } during tableau drag
+
+const SUIT_SYMBOLS_US = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
+const RED_SUITS_US    = new Set(['hearts', 'diamonds']);
+const RANKS_US        = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+
+function canStackOnTableau(card, targetCard) {
+  if (!targetCard) return card.rank === 'K';
+  if (RANKS_US.indexOf(card.rank) !== RANKS_US.indexOf(targetCard.rank) - 1) return false;
+  return RED_SUITS_US.has(card.suit) !== RED_SUITS_US.has(targetCard.suit);
+}
+
+function canPlaceOnFoundation(card, foundationPile) {
+  if (foundationPile.length === 0) return card.rank === 'A';
+  return card.suit === foundationPile.at(-1).suit &&
+    RANKS_US.indexOf(card.rank) === RANKS_US.indexOf(foundationPile.at(-1).rank) + 1;
+}
+
 // ── Game started ───────────────────────────────────────────────────────────────
 socket.on('game:started', (payload) => {
   if (payload.game === 'cambio') {
     cambioState = payload;
     resetGameState();
     cambioBoard.classList.remove('hidden');
+    usBoard.classList.add('hidden');
     genericGameInfo.classList.add('hidden');
     resolutionOverlay.classList.add('hidden');
     renderCambioBoard();
+  } else if (payload.game === 'un-solitaire') {
+    usState        = payload;
+    usMyId         = payload.myId;
+    usPlayerOrder  = payload.playerOrder ?? [];
+    usOriginalHand = [...payload.myHand];
+    usSortOrder    = payload.myHand.map((_, i) => i);
+    usSelected     = null;
+    cambioBoard.classList.add('hidden');
+    usBoard.classList.remove('hidden');
+    genericGameInfo.classList.add('hidden');
+    resolutionOverlay.classList.add('hidden');
+    renderUSBoard();
   } else {
     cambioBoard.classList.add('hidden');
+    usBoard.classList.add('hidden');
     genericGameInfo.classList.remove('hidden');
     gameTitle.textContent = GAME_LABELS[payload.game] ?? payload.game;
     gameInfo.textContent  = `Players: ${(payload.players ?? []).map(p => p.name).join(', ')}`;
@@ -896,6 +967,564 @@ function renderCambioBoard() {
   renderMatchRow();
   renderActionPanel();
 }
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ── Un-Solitaire ─────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════════
+
+socket.on('us:state', (view) => {
+  usState = { ...usState, ...view };
+  renderUSBoard();
+});
+
+socket.on('us:game-over', ({ result, givenUpBy }) => {
+  if (!usState) return;
+  usState.phase = 'resolution';
+  const overlay = document.getElementById('resolution-overlay');
+  const subtitle = document.getElementById('resolution-subtitle');
+  const players  = document.getElementById('resolution-players');
+  if (result === 'win') {
+    subtitle.textContent = 'You uncovered every card — you win!';
+  } else {
+    const quitter = usPlayerOrder.find(p => p.id === givenUpBy)?.name ?? '?';
+    subtitle.textContent = `${escapeHtml(quitter)} gave up.`;
+  }
+  players.innerHTML = '';
+  overlay.classList.remove('hidden');
+});
+
+// ── Give Up button ─────────────────────────────────────────────────────────────
+document.getElementById('us-give-up-btn').addEventListener('click', () => {
+  socket.emit('us:give-up', { code: currentRoom });
+});
+
+// ── Sort-ready button ──────────────────────────────────────────────────────────
+document.getElementById('us-sort-ready-btn').addEventListener('click', () => {
+  if (!usState) return;
+  const btn = document.getElementById('us-sort-ready-btn');
+  btn.disabled = true;
+  // Commit current drag order to server
+  socket.emit('us:reorder-hand', { code: currentRoom, order: usSortOrder });
+  socket.emit('us:sort-ready',   { code: currentRoom });
+});
+
+// ── Render helpers ─────────────────────────────────────────────────────────────
+function usCardHtml(card, extraClass = '', extraAttrs = '') {
+  if (!card) return '';
+  const sym   = SUIT_SYMBOLS_US[card.suit] ?? card.suit[0];
+  const color = RED_SUITS_US.has(card.suit) ? 'red' : 'black';
+  return `<div class="us-col-card face-up ${color}${extraClass ? ' ' + extraClass : ''}" ${extraAttrs}>
+    <span class="us-card-tl">${card.rank}<br>${sym}</span>
+    <span class="us-card-suit">${sym}</span>
+    <span class="us-card-br">${card.rank}<br>${sym}</span>
+  </div>`;
+}
+
+function usFaceDownHtml(extraClass = '') {
+  return `<div class="us-col-card face-down${extraClass ? ' ' + extraClass : ''}">
+    <div class="us-card-back"></div>
+  </div>`;
+}
+
+// ── Main render ────────────────────────────────────────────────────────────────
+function renderUSBoard() {
+  if (!usState) return;
+  const { tableau, foundations, myHand, myDiscard,
+          partnerHandSize, partnerDiscard,
+          currentTurnId, phase, sortingReadyIds, hasDrawnThisTurn } = usState;
+  const isMyTurn   = currentTurnId === usMyId;
+  const partnerObj = usPlayerOrder.find(p => p.id !== usMyId);
+  const myObj      = usPlayerOrder.find(p => p.id === usMyId);
+
+  // Hand section (sorting) vs draw pile in dock (playing)
+  const handSection      = document.getElementById('us-hand-section');
+  const pileArea         = document.getElementById('us-hand-pile-area');
+  const sortHintEl       = document.getElementById('us-sort-hint');
+  const sortReadyBtnEl   = document.getElementById('us-sort-ready-btn');
+  const partnerReadyText = document.getElementById('us-partner-ready-text');
+  if (phase === 'sorting') {
+    handSection.classList.remove('hidden');
+    pileArea.classList.add('hidden');
+    document.getElementById('us-hand-count').textContent = myHand.length;
+    sortHintEl.classList.remove('hidden');
+    sortReadyBtnEl.classList.remove('hidden');
+    const partnerReady = (sortingReadyIds ?? []).some(id => id !== usMyId);
+    partnerReadyText.classList.toggle('hidden', !partnerReady);
+    renderUSSortingHand();
+  } else {
+    handSection.classList.add('hidden');
+    pileArea.classList.remove('hidden');
+    document.getElementById('us-hand-pile-count').textContent = myHand.length;
+    const pileDisplay = document.getElementById('us-hand-pile');
+    if (myHand.length > 0) {
+      const n   = Math.min(myHand.length, 3);
+      const sel = usSelected?.type === 'hand' ? ' selected' : '';
+      pileDisplay.innerHTML = `<div class="us-hand-pile-wrap${sel}">${
+        Array.from({length: n}, (_, i) => {
+          const off = (n - 1 - i) * 3;
+          return `<div class="us-hand-pile-card" style="left:${off}px;top:${off}px;z-index:${i}"></div>`;
+        }).join('')
+      }</div>`;
+      const pileWrap = pileDisplay.querySelector('.us-hand-pile-wrap');
+      if (hasDrawnThisTurn) pileWrap.classList.add('drawn-this-turn');
+      pileWrap.addEventListener('click', () => {
+        if (!isMyTurn || phase !== 'playing' || hasDrawnThisTurn) return;
+        socket.emit('us:draw-to-discard', { code: currentRoom });
+      });
+    } else {
+      pileDisplay.innerHTML = '<div class="us-col-empty" style="width:52px;height:74px"></div>';
+    }
+  }
+
+  // Foundations
+  const foundationOrder = ['hearts', 'diamonds', 'clubs', 'spades'];
+  const foundEl = document.getElementById('us-foundations');
+  foundEl.innerHTML = foundationOrder.map(suit => {
+    const pile  = foundations[suit] ?? [];
+    const top   = pile.at(-1);
+    const sym   = SUIT_SYMBOLS_US[suit];
+    const isSel = usSelected?.type === 'foundation' && usSelected.suit === suit;
+    const inner = top ? usCardHtml(top, isSel ? 'selected' : '', 'draggable="true"') : `<span>${sym}</span>`;
+    return `<div class="us-foundation-slot${top ? ' has-card' : ''}" data-suit="${suit}">${inner}</div>`;
+  }).join('');
+
+  // Tableau
+  const CARD_OVERLAP = 28;
+  const selCol      = usSelected?.type === 'tableau' ? usSelected.colIndex  : -1;
+  const selCardIdx  = usSelected?.type === 'tableau' ? usSelected.cardIndex : -1;
+  let stackBottom = null;
+  if (usSelected?.type === 'tableau')    stackBottom = tableau[selCol]?.[selCardIdx] ?? null;
+  else if (usSelected?.type === 'foundation') stackBottom = foundations[usSelected.suit]?.at(-1) ?? null;
+  else if (usSelected?.type === 'discard')    stackBottom = myDiscard?.at(-1) ?? null;
+  else if (usSelected?.type === 'hand')       stackBottom = myHand?.[0] ?? null;
+
+  const tableauEl = document.getElementById('us-tableau');
+  tableauEl.innerHTML = tableau.map((col, colIdx) => {
+    const colTop         = col.length > 0 ? col.at(-1) : null;
+    const isDropTarget   = stackBottom !== null
+                           && (usSelected?.type !== 'tableau' || colIdx !== selCol)
+                           && canStackOnTableau(stackBottom, colTop);
+    const totalHeight    = col.length === 0 ? 74 : 74 + (col.length - 1) * CARD_OVERLAP;
+
+    const cards = col.map((card, cardIdx) => {
+      const top       = cardIdx * CARD_OVERLAP;
+      const inStack   = selCol === colIdx && cardIdx >= selCardIdx && selCardIdx >= 0;
+      const isDropTop = isDropTarget && cardIdx === col.length - 1;
+      const extraCls  = inStack ? ' selected' : isDropTop ? ' drop-valid' : '';
+      if (card.faceUp) {
+        const sym   = SUIT_SYMBOLS_US[card.suit];
+        const color = RED_SUITS_US.has(card.suit) ? 'red' : 'black';
+        return `<div class="us-col-card face-up ${color}${extraCls}"
+                     draggable="true"
+                     style="top:${top}px"
+                     data-col="${colIdx}" data-card="${cardIdx}">
+          <span class="us-card-tl">${card.rank}<br>${sym}</span>
+          <span class="us-card-suit">${sym}</span>
+        </div>`;
+      } else {
+        return `<div class="us-col-card face-down" style="top:${top}px"
+                     data-col="${colIdx}" data-card="${cardIdx}">
+          <div class="us-card-back"></div>
+        </div>`;
+      }
+    }).join('');
+
+    const emptySlot = `<div class="us-col-empty${isDropTarget ? ' droppable' : ''}" data-col="${colIdx}"></div>`;
+    return `<div class="us-column" data-col="${colIdx}">
+      <div class="us-column-cards" style="height:${totalHeight}px">
+        ${col.length === 0 ? emptySlot : cards}
+      </div>
+    </div>`;
+  }).join('');
+
+  // My dock
+  const myDockLabel = document.getElementById('us-dock-mine-label');
+  myDockLabel.textContent = myObj ? escapeHtml(myObj.name) + ' (You)' : 'You';
+  myDockLabel.className = 'us-dock-label' + (isMyTurn ? ' my-turn' : '');
+  document.getElementById('us-dock-mine').classList.toggle('active-turn', isMyTurn);
+
+  document.getElementById('us-discard-count').textContent = myDiscard.length;
+  const myDiscardDisplay = document.getElementById('us-my-discard');
+  if (myDiscard.length > 0) {
+    myDiscardDisplay.innerHTML = usCardHtml(myDiscard.at(-1), usSelected?.type === 'discard' ? 'selected' : '', 'draggable="true"');
+  } else {
+    myDiscardDisplay.innerHTML = '<div class="us-col-empty"></div>';
+  }
+
+  document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing');
+
+  // Partner dock
+  const partnerDockLabel = document.getElementById('us-dock-partner-label');
+  partnerDockLabel.textContent = partnerObj ? escapeHtml(partnerObj.name) : 'Partner';
+  partnerDockLabel.className = 'us-dock-label' + (!isMyTurn && phase === 'playing' ? ' my-turn' : '');
+
+  document.getElementById('us-partner-hand-count').textContent = partnerHandSize;
+  const partnerHandDisplay = document.getElementById('us-partner-hand-display');
+  if (partnerHandSize > 0) {
+    partnerHandDisplay.innerHTML = usFaceDownHtml();
+  } else {
+    partnerHandDisplay.innerHTML = '<div class="us-col-empty"></div>';
+  }
+
+  document.getElementById('us-partner-discard-count').textContent = partnerDiscard.length;
+  const partnerDiscardDisplay = document.getElementById('us-partner-discard');
+  if (partnerDiscard.length > 0) {
+    partnerDiscardDisplay.innerHTML = usCardHtml(partnerDiscard.at(-1));
+  } else {
+    partnerDiscardDisplay.innerHTML = '<div class="us-col-empty"></div>';
+  }
+}
+
+// ── Sorting-hand drag-and-drop ─────────────────────────────────────────────────
+let usDragSrcIdx = null;
+
+function renderUSSortingHand() {
+  if (!usState) return;
+  const container = document.getElementById('us-hand-row');
+  const hand = usOriginalHand;
+
+  container.innerHTML = usSortOrder.map((srcIdx, pos) => {
+    const card  = hand[srcIdx];
+    const sym   = SUIT_SYMBOLS_US[card.suit];
+    const color = RED_SUITS_US.has(card.suit) ? 'red' : 'black';
+    return `<div class="us-sorting-card ${color}" draggable="true" data-pos="${pos}">
+      <span class="us-card-tl">${card.rank}<br>${sym}</span>
+      <span class="us-card-suit">${sym}</span>
+    </div>`;
+  }).join('');
+
+  let insertPos = null;
+
+  function getInsertPos(e) {
+    const cards = [...container.querySelectorAll('.us-sorting-card')];
+    if (cards.length === 0) return 0;
+    // Group into rows by similar top value
+    const rows = [];
+    for (const card of cards) {
+      const r = card.getBoundingClientRect();
+      const row = rows.find(ro => Math.abs(ro.top - r.top) < 5);
+      if (row) { row.cards.push(card); row.bottom = Math.max(row.bottom, r.bottom); }
+      else rows.push({ top: r.top, bottom: r.bottom, cards: [card] });
+    }
+    // Find the row the cursor is on or nearest to
+    let bestRow = rows[0], bestDist = Infinity;
+    for (const row of rows) {
+      const d = Math.max(0, row.top - e.clientY, e.clientY - row.bottom);
+      if (d < bestDist) { bestDist = d; bestRow = row; }
+    }
+    // Horizontal insertion within that row
+    const firstIdx = cards.indexOf(bestRow.cards[0]);
+    for (let i = 0; i < bestRow.cards.length; i++) {
+      const r = bestRow.cards[i].getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) return firstIdx + i;
+    }
+    return cards.indexOf(bestRow.cards[bestRow.cards.length - 1]) + 1;
+  }
+
+  function showIndicator(pos) {
+    if (pos === insertPos) return;
+    insertPos = pos;
+    let ind = container.querySelector('.us-drop-indicator');
+    if (!ind) {
+      ind = document.createElement('div');
+      ind.className = 'us-drop-indicator';
+      container.appendChild(ind);
+    }
+    const cards = [...container.querySelectorAll('.us-sorting-card')];
+    const cRect = container.getBoundingClientRect();
+    let x, r;
+    if (pos < cards.length) {
+      r = cards[pos].getBoundingClientRect();
+      x = r.left - cRect.left - 2;
+    } else if (cards.length > 0) {
+      r = cards[cards.length - 1].getBoundingClientRect();
+      x = r.right - cRect.left + 2;
+    } else {
+      ind.style.cssText = 'left:4px;top:0;height:70px';
+      return;
+    }
+    ind.style.left   = x + 'px';
+    ind.style.top    = (r.top - cRect.top) + 'px';
+    ind.style.height = r.height + 'px';
+  }
+
+  function hideIndicator() {
+    container.querySelector('.us-drop-indicator')?.remove();
+    insertPos = null;
+  }
+
+  container.querySelectorAll('.us-sorting-card').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      usDragSrcIdx = parseInt(el.dataset.pos, 10);
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      hideIndicator();
+    });
+  });
+
+  container.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    showIndicator(getInsertPos(e));
+  });
+
+  container.addEventListener('dragleave', e => {
+    if (!container.contains(e.relatedTarget)) hideIndicator();
+  });
+
+  container.addEventListener('drop', e => {
+    e.preventDefault();
+    const at = insertPos ?? getInsertPos(e);
+    hideIndicator();
+    if (usDragSrcIdx === null) return;
+    const newOrder = [...usSortOrder];
+    const [moved] = newOrder.splice(usDragSrcIdx, 1);
+    newOrder.splice(at > usDragSrcIdx ? at - 1 : at, 0, moved);
+    usSortOrder = newOrder;
+    usDragSrcIdx = null;
+    renderUSSortingHand();
+  });
+}
+
+// ── Routing helper: dispatch whatever is selected to a target ─────────────────
+function usDispatch(targetType, targetIndex) {
+  if (!usSelected) return;
+  if (usSelected.type === 'tableau') {
+    socket.emit('us:tableau-move', {
+      code: currentRoom,
+      fromCol: usSelected.colIndex, cardIndex: usSelected.cardIndex,
+      toCol: targetIndex,
+    });
+  } else if (usSelected.type === 'foundation') {
+    socket.emit('us:foundation-to-tableau', {
+      code: currentRoom, suit: usSelected.suit, toCol: targetIndex,
+    });
+  } else {
+    socket.emit('us:play', {
+      code: currentRoom,
+      source: usSelected.type,   // 'hand' | 'discard'
+      targetType, targetIndex,
+    });
+  }
+  usSelected = null;
+  renderUSBoard();
+}
+
+// ── Tableau click ─────────────────────────────────────────────────────────────
+document.getElementById('us-tableau').addEventListener('click', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  if (usDragSrc) return; // ignore clicks that end a drag
+  const cardEl = e.target.closest('.us-col-card[data-col]');
+  const colEl  = e.target.closest('[data-col]');
+  if (!colEl) return;
+  const colIdx  = parseInt(colEl.dataset.col, 10);
+  const cardIdx = cardEl ? parseInt(cardEl.dataset.card, 10) : -1;
+
+  if (cardEl && usState.tableau[colIdx]?.[cardIdx]?.faceUp) {
+    if (usSelected?.type === 'tableau') {
+      // Clicking a face-up card while a tableau card is selected: switch selection
+      // (same card = deselect)
+      if (usSelected.colIndex === colIdx && usSelected.cardIndex === cardIdx) {
+        usSelected = null;
+      } else {
+        usSelected = { type: 'tableau', colIndex: colIdx, cardIndex: cardIdx };
+      }
+    } else if (usSelected) {
+      // Hand or discard is selected — dispatch to this column
+      usDispatch('tableau', colIdx);
+      return;
+    } else {
+      usSelected = { type: 'tableau', colIndex: colIdx, cardIndex: cardIdx };
+    }
+    renderUSBoard();
+    return;
+  }
+
+  // Clicked face-down card, empty slot, or column background
+  if (usSelected) usDispatch('tableau', colIdx);
+});
+
+// ── Tableau drag-and-drop ─────────────────────────────────────────────────────
+document.getElementById('us-tableau').addEventListener('dragstart', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  const cardEl = e.target.closest('.us-col-card[data-col]');
+  if (!cardEl || !cardEl.classList.contains('face-up')) return;
+  const colIdx  = parseInt(cardEl.dataset.col, 10);
+  const cardIdx = parseInt(cardEl.dataset.card, 10);
+  usDragSrc = { colIdx, cardIdx };
+  e.dataTransfer.effectAllowed = 'move';
+  // Dim the whole sub-stack being lifted
+  document.querySelectorAll(`.us-col-card[data-col="${colIdx}"]`).forEach(c => {
+    if (parseInt(c.dataset.card, 10) >= cardIdx) c.classList.add('dragging-stack');
+  });
+});
+
+document.getElementById('us-tableau').addEventListener('dragend', () => {
+  usDragSrc = null;
+  document.querySelectorAll('.dragging-stack').forEach(c => c.classList.remove('dragging-stack'));
+  document.querySelectorAll('.col-drag-over').forEach(c => c.classList.remove('col-drag-over'));
+  document.querySelectorAll('.foundation-drag-over').forEach(c => c.classList.remove('foundation-drag-over'));
+});
+
+document.getElementById('us-tableau').addEventListener('dragover', e => {
+  if (!usDragSrc || !usState) return;
+  const colEl = e.target.closest('.us-column[data-col]');
+  if (!colEl) return;
+  const toCol = parseInt(colEl.dataset.col, 10);
+
+  let dragCard = null;
+  if (usDragSrc.type === 'discard') {
+    dragCard = usState.myDiscard?.at(-1) ?? null;
+  } else if (usDragSrc.type === 'foundation') {
+    dragCard = usState.foundations[usDragSrc.suit]?.at(-1) ?? null;
+  } else {
+    if (toCol === usDragSrc.colIdx) return;
+    dragCard = usState.tableau[usDragSrc.colIdx]?.[usDragSrc.cardIdx] ?? null;
+  }
+  if (!dragCard) return;
+
+  if (canStackOnTableau(dragCard, usState.tableau[toCol]?.at(-1) ?? null)) {
+    e.preventDefault();
+    document.querySelectorAll('.col-drag-over').forEach(c => {
+      if (c !== colEl) c.classList.remove('col-drag-over');
+    });
+    colEl.classList.add('col-drag-over');
+  }
+});
+
+document.getElementById('us-tableau').addEventListener('dragleave', e => {
+  const colEl = e.target.closest('.us-column[data-col]');
+  if (colEl && !colEl.contains(e.relatedTarget)) colEl.classList.remove('col-drag-over');
+});
+
+document.getElementById('us-tableau').addEventListener('drop', e => {
+  e.preventDefault();
+  const colEl = e.target.closest('.us-column[data-col]');
+  if (!colEl || !usDragSrc) return;
+  colEl.classList.remove('col-drag-over');
+  const toCol = parseInt(colEl.dataset.col, 10);
+  if (usDragSrc.type === 'discard') {
+    usDragSrc = null;
+    socket.emit('us:play', { code: currentRoom, source: 'discard', targetType: 'tableau', targetIndex: toCol });
+  } else if (usDragSrc.type === 'foundation') {
+    const { suit } = usDragSrc;
+    usDragSrc = null;
+    socket.emit('us:foundation-to-tableau', { code: currentRoom, suit, toCol });
+  } else {
+    const { colIdx: fromCol, cardIdx } = usDragSrc;
+    usDragSrc = null;
+    if (toCol === fromCol) return;
+    socket.emit('us:tableau-move', { code: currentRoom, fromCol, cardIndex: cardIdx, toCol });
+  }
+});
+
+// ── Foundation click: select from foundation or place onto it ─────────────────
+document.getElementById('us-foundations').addEventListener('click', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  const slot = e.target.closest('.us-foundation-slot');
+  if (!slot) return;
+  const suit = slot.dataset.suit;
+  if (usSelected?.type === 'foundation') {
+    usSelected = usSelected.suit === suit ? null : { type: 'foundation', suit };
+    renderUSBoard();
+  } else if (usSelected) {
+    usDispatch('foundation', suit);
+  } else if ((usState.foundations[suit]?.length ?? 0) > 0) {
+    usSelected = { type: 'foundation', suit };
+    renderUSBoard();
+  }
+});
+
+// ── Foundation drag-and-drop ──────────────────────────────────────────────────
+function getDragCard() {
+  if (!usDragSrc || !usState) return null;
+  if (usDragSrc.type === 'discard')    return usState.myDiscard?.at(-1) ?? null;
+  if (usDragSrc.type === 'foundation') return usState.foundations[usDragSrc.suit]?.at(-1) ?? null;
+  // Tableau: only the top card of the column can go to foundation
+  const col = usState.tableau[usDragSrc.colIdx];
+  if (usDragSrc.cardIdx !== (col?.length ?? 0) - 1) return null;
+  return col?.[usDragSrc.cardIdx] ?? null;
+}
+
+document.getElementById('us-foundations').addEventListener('dragstart', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  const slot = e.target.closest('.us-foundation-slot');
+  if (!slot) return;
+  const suit = slot.dataset.suit;
+  if (!usState.foundations[suit]?.length) return;
+  usDragSrc = { type: 'foundation', suit };
+  e.dataTransfer.effectAllowed = 'move';
+});
+
+document.getElementById('us-foundations').addEventListener('dragend', () => {
+  if (usDragSrc?.type === 'foundation') usDragSrc = null;
+  document.querySelectorAll('.col-drag-over').forEach(c => c.classList.remove('col-drag-over'));
+  document.querySelectorAll('.foundation-drag-over').forEach(s => s.classList.remove('foundation-drag-over'));
+});
+
+document.getElementById('us-foundations').addEventListener('dragover', e => {
+  if (usDragSrc?.type === 'foundation') return; // can't drag foundation onto itself
+  const card = getDragCard();
+  if (!card) return;
+  if (canPlaceOnFoundation(card, usState.foundations[card.suit])) {
+    e.preventDefault();
+    // Highlight all slots — any slot accepts; we auto-route by suit on drop
+    document.querySelectorAll('.us-foundation-slot').forEach(s => s.classList.add('foundation-drag-over'));
+  }
+});
+
+document.getElementById('us-foundations').addEventListener('dragleave', e => {
+  if (!document.getElementById('us-foundations').contains(e.relatedTarget)) {
+    document.querySelectorAll('.foundation-drag-over').forEach(s => s.classList.remove('foundation-drag-over'));
+  }
+});
+
+document.getElementById('us-foundations').addEventListener('drop', e => {
+  e.preventDefault();
+  document.querySelectorAll('.foundation-drag-over').forEach(s => s.classList.remove('foundation-drag-over'));
+  const card = getDragCard();
+  if (!card || !usDragSrc) return;
+  if (usDragSrc.type === 'discard') {
+    usDragSrc = null;
+    socket.emit('us:play', { code: currentRoom, source: 'discard', targetType: 'foundation', targetIndex: card.suit });
+  } else {
+    const fromCol = usDragSrc.colIdx;
+    usDragSrc = null;
+    socket.emit('us:tableau-to-foundation', { code: currentRoom, fromCol });
+  }
+});
+
+// ── Discard drag ──────────────────────────────────────────────────────────────
+document.getElementById('us-my-discard').addEventListener('dragstart', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  if (!usState.myDiscard?.length) return;
+  usDragSrc = { type: 'discard' };
+  e.dataTransfer.effectAllowed = 'move';
+});
+
+document.getElementById('us-my-discard').addEventListener('dragend', () => {
+  usDragSrc = null;
+  document.querySelectorAll('.col-drag-over').forEach(c => c.classList.remove('col-drag-over'));
+  document.querySelectorAll('.foundation-drag-over').forEach(s => s.classList.remove('foundation-drag-over'));
+});
+
+// ── Discard card click: select it ─────────────────────────────────────────────
+document.getElementById('us-my-discard').addEventListener('click', () => {
+  if (!usState || usState.phase !== 'playing') return;
+  if (usState.myDiscard.length === 0) return;
+  usSelected = usSelected?.type === 'discard' ? null : { type: 'discard' };
+  renderUSBoard();
+});
+
+// ── End Turn button ────────────────────────────────────────────────────────────
+document.getElementById('us-end-turn-btn').addEventListener('click', () => {
+  if (!usState || usState.currentTurnId !== usMyId) return;
+  usSelected = null;
+  socket.emit('us:end-turn', { code: currentRoom });
+});
 
 // ── Utility ────────────────────────────────────────────────────────────────────
 function escapeHtml(str) {

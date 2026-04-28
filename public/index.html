@@ -30,28 +30,28 @@
       </div>
     </div>
 
-    <!-- ── 2. Create screen ───────────────────────────────────── -->
-    <div id="create-screen" class="screen hidden">
+    <!-- ── 2. Name screen (create or join) ─────────────────────── -->
+    <div id="name-screen" class="screen hidden">
       <div class="screen-header">
-        <button class="back-link" id="back-from-create">← Back</button>
+        <button class="back-link" id="back-from-name">← Back</button>
       </div>
 
-      <h2>Create a Room</h2>
-      <p class="subtitle">Choose a name to display to other players.</p>
+      <h2 id="name-screen-heading">Enter Your Name</h2>
+      <p class="subtitle" id="name-screen-subtitle">Choose a name to display to other players.</p>
 
-      <form id="create-form" class="name-form">
+      <form id="name-form" class="name-form">
         <input
-          id="create-name-input"
+          id="name-input"
           type="text"
           placeholder="Your name"
           maxlength="20"
           autocomplete="off"
           required
         />
-        <button type="submit">Create Room</button>
+        <button type="submit" id="name-submit-btn">Continue</button>
       </form>
 
-      <p id="create-error" class="error-msg hidden"></p>
+      <p id="name-error" class="error-msg hidden"></p>
     </div>
 
     <!-- ── 3. Join screen ────────────────────────────────────── -->
@@ -61,15 +61,6 @@
       </div>
 
       <h2>Join a Room</h2>
-
-      <input
-        id="join-name-input"
-        type="text"
-        placeholder="Your name"
-        maxlength="20"
-        autocomplete="off"
-        class="join-name-field"
-      />
 
       <div class="rooms-section">
         <p class="section-label">Open Rooms</p>
@@ -89,7 +80,7 @@
             autocomplete="off"
             spellcheck="false"
           />
-          <button id="join-code-btn">Join</button>
+          <button id="join-code-btn">Next</button>
         </div>
       </div>
 
@@ -218,7 +209,67 @@
         </div>
       </div>
 
-      <!-- Generic fallback (Un-Solitaire placeholder) -->
+      <!-- Un-Solitaire board -->
+      <div id="unsolitaire-board" class="hidden">
+        <div class="us-layout">
+
+          <!-- Top row: give-up (left) + foundations (right) -->
+          <div class="us-top-bar">
+            <button id="us-give-up-btn" class="us-give-up-btn">Give Up</button>
+            <div class="us-foundations" id="us-foundations"></div>
+          </div>
+
+          <!-- Tableau — always visible including during sort -->
+          <div class="us-tableau" id="us-tableau"></div>
+
+          <!-- My full hand row -->
+          <div class="us-hand-section" id="us-hand-section">
+            <div class="us-hand-section-header">
+              <span class="us-pile-label">Your Hand (<span id="us-hand-count">0</span>)</span>
+              <span id="us-sort-hint" class="us-sort-hint hidden">Drag to reorder — leftmost card plays first</span>
+              <span id="us-partner-ready-text" class="us-partner-ready-text hidden">✓ Partner ready</span>
+              <button id="us-sort-ready-btn" class="us-sort-ready-btn hidden">Ready</button>
+            </div>
+            <!-- All 12 cards rendered here; draggable during sort -->
+            <div id="us-hand-row" class="us-hand-row"></div>
+          </div>
+
+          <!-- Bottom docks: my discard + partner info -->
+          <div class="us-docks">
+            <div class="us-dock us-dock-mine" id="us-dock-mine">
+              <p class="us-dock-label" id="us-dock-mine-label"></p>
+              <div class="us-dock-piles">
+                <div class="us-hand-pile-area hidden" id="us-hand-pile-area">
+                  <div id="us-hand-pile" class="us-hand-pile-display"></div>
+                  <p class="us-pile-label"><span id="us-hand-pile-count">0</span></p>
+                </div>
+                <div class="us-discard-area">
+                  <div id="us-my-discard" class="us-discard-display"></div>
+                  <p class="us-pile-label"><span id="us-discard-count">0</span></p>
+                </div>
+              </div>
+              <button id="us-end-turn-btn" class="us-end-turn-btn hidden">Done</button>
+            </div>
+
+            <div class="us-dock us-dock-partner" id="us-dock-partner">
+              <p class="us-dock-label" id="us-dock-partner-label">Partner</p>
+              <div class="us-dock-piles">
+                <div class="us-hand-area">
+                  <p class="us-pile-label">Hand (<span id="us-partner-hand-count">0</span>)</p>
+                  <div id="us-partner-hand-display" class="us-hand-display"></div>
+                </div>
+                <div class="us-discard-area">
+                  <p class="us-pile-label">Discard (<span id="us-partner-discard-count">0</span>)</p>
+                  <div id="us-partner-discard" class="us-discard-display"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Generic fallback -->
       <div id="generic-game-info" class="hidden">
         <h1 id="game-title">Game Starting…</h1>
         <p id="game-info"></p>

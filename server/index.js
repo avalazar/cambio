@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const { createCambioState, getPlayerView, getCardAction } = require('./cambio');
+const { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation } = require('./unsolitaire');
 
 const app = express();
 const server = http.createServer(app);
@@ -163,6 +164,17 @@ io.on('connection', (socket) => {
         io.to(socketId).emit('game:started', { game: 'cambio', playerOrder: playerList, myIndex: playerOrder.indexOf(socketId), ...view });
       }
       console.log(`[game:start]  ${code} — cambio (${room.players.size}p, ${room.cambioState.deck.length} cards left)`);
+    } else if (room.game === 'un-solitaire') {
+      if (room.players.size !== 2) return; // requires exactly 2 players
+      const playerIds = [...room.players.keys()];
+      room.usState = createUnSolitaireState(playerIds);
+      const { playerOrder } = room.usState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+      for (const socketId of playerOrder) {
+        const view = getUnSolitaireView(room.usState, socketId);
+        io.to(socketId).emit('game:started', { game: 'un-solitaire', playerOrder: playerList, myId: socketId, ...view });
+      }
+      console.log(`[game:start]  ${code} — un-solitaire`);
     } else {
       io.to(code).emit('game:started', { game: room.game, players: [...room.players.values()] });
       console.log(`[game:start]  ${code} — ${room.game}`);
@@ -587,6 +599,249 @@ io.on('connection', (socket) => {
       });
     }
     console.log(`[room:restart] ${code} — restarted by ${room.players.get(socket.id)?.name}`);
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ── Un-Solitaire events ───────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════════
+
+  function usRoom(code) {
+    const room = rooms.get(code);
+    if (!room?.usState || !room.players.has(socket.id)) return null;
+    return room;
+  }
+
+  function broadcastUS(code) {
+    const room = rooms.get(code);
+    if (!room?.usState) return;
+    for (const socketId of room.usState.playerOrder) {
+      io.to(socketId).emit('us:state', getUnSolitaireView(room.usState, socketId));
+    }
+  }
+
+  // ── Sorting: reorder hand ──────────────────────────────────────────────────────
+  socket.on('us:reorder-hand', ({ code, order }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'sorting') return;
+    if (state.sortingReady.has(socket.id)) return; // locked in
+    const hand = state.playerHands[socket.id];
+    if (!Array.isArray(order) || order.length !== hand.length) return;
+    const sorted = [...new Set(order)];
+    if (sorted.length !== hand.length || sorted.some(i => i < 0 || i >= hand.length)) return;
+    state.playerHands[socket.id] = order.map(i => hand[i]);
+    socket.emit('us:state', getUnSolitaireView(state, socket.id));
+  });
+
+  // ── Sorting: signal ready ──────────────────────────────────────────────────────
+  socket.on('us:sort-ready', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'sorting') return;
+    state.sortingReady.add(socket.id);
+    console.log(`[us:sort]     ${code} — ${room.players.get(socket.id)?.name} ready (${state.sortingReady.size}/${state.playerOrder.length})`);
+    if (state.sortingReady.size === state.playerOrder.length) {
+      state.phase = 'playing';
+      console.log(`[us:play]     ${code} — sorting done, playing begins`);
+    }
+    broadcastUS(code);
+  });
+
+  // ── Play: place card from hand or discard onto tableau or foundation ───────────
+  socket.on('us:play', ({ code, source, targetType, targetIndex }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+
+    const myHand    = state.playerHands[socket.id];
+    const myDiscard = state.playerDiscards[socket.id];
+
+    // Hand plays require it to be your turn; discard plays are always allowed.
+    let card;
+    if (source === 'hand') {
+      if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+      if (myHand.length === 0) return;
+      card = myHand[0];
+    } else if (source === 'discard') {
+      if (myDiscard.length === 0) return;
+      card = myDiscard.at(-1);
+    } else return;
+
+    let placed = false;
+
+    if (targetType === 'foundation') {
+      const pile = state.foundations[card.suit];
+      if (!canPlaceOnFoundation(card, pile)) return;
+      pile.push(card);
+      placed = true;
+    } else if (targetType === 'tableau') {
+      const col = state.tableau[targetIndex];
+      if (col === undefined) return;
+      const topCard = col.length > 0 ? col.at(-1) : null;
+      if (!canStackOnTableau(card, topCard)) return;
+      col.push({ ...card, faceUp: true });
+      placed = true;
+    } else return;
+
+    if (!placed) return;
+
+    // Remove from source; advance turn only for hand plays.
+    if (source === 'hand') {
+      myHand.shift();
+      state.drawnThisTurn.delete(socket.id);
+      state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    } else {
+      myDiscard.pop();
+    }
+
+    console.log(`[us:play]     ${code} — ${room.players.get(socket.id)?.name} played ${card.rank}${card.suit[0]} → ${targetType}${targetType === 'tableau' ? targetIndex : ''}`);
+
+    // Check win condition
+    const won = Object.values(state.foundations).every(p => p.length === 13);
+    if (won) {
+      state.phase = 'resolution';
+      io.to(code).emit('us:game-over', { result: 'win' });
+      return;
+    }
+    broadcastUS(code);
+  });
+
+  // ── Play: discard from hand (can't or don't want to play it) ──────────────────
+  socket.on('us:discard-hand', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    const myHand    = state.playerHands[socket.id];
+    const myDiscard = state.playerDiscards[socket.id];
+    if (myHand.length === 0) return;
+    const card = myHand.shift();
+    myDiscard.push(card);
+    state.drawnThisTurn.delete(socket.id);
+    state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    console.log(`[us:discard]  ${code} — ${room.players.get(socket.id)?.name} discarded ${card.rank}${card.suit[0]}`);
+    broadcastUS(code);
+  });
+
+  // ── Tableau → Tableau stack move ───────────────────────────────────────────────
+  socket.on('us:tableau-move', ({ code, fromCol, cardIndex, toCol }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+
+    const src = state.tableau[fromCol];
+    const dst = state.tableau[toCol];
+    if (!src || !dst) return;
+    if (cardIndex < 0 || cardIndex >= src.length) return;
+    if (!src[cardIndex].faceUp) return; // can only move face-up cards
+
+    // All cards from cardIndex onward must be face-up (they form the stack)
+    const stack = src.slice(cardIndex);
+    if (stack.some(c => !c.faceUp)) return;
+
+    // The bottom card of the moving stack must be placeable on dst top
+    const dstTop = dst.length > 0 ? dst.at(-1) : null;
+    if (!canStackOnTableau(stack[0], dstTop)) return;
+
+    // Move the stack
+    src.splice(cardIndex, stack.length);
+    for (const c of stack) dst.push(c);
+
+    // Flip new src top face-up if it exists and isn't already
+    if (src.length > 0 && !src.at(-1).faceUp) src.at(-1).faceUp = true;
+
+    console.log(`[us:t-move]   ${code} — ${room.players.get(socket.id)?.name} col${fromCol}[${cardIndex}..] → col${toCol}`);
+    broadcastUS(code);
+  });
+
+  // ── End turn without playing ──────────────────────────────────────────────────
+  socket.on('us:end-turn', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    state.drawnThisTurn.delete(socket.id);
+    state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    console.log(`[us:end-turn] ${code} — ${room.players.get(socket.id)?.name} ended turn`);
+    broadcastUS(code);
+  });
+
+  // ── Draw top card from hand to discard (no turn advance) ─────────────────────
+  socket.on('us:draw-to-discard', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (state.drawnThisTurn.has(socket.id)) return;
+    const hand = state.playerHands[socket.id];
+    if (hand.length === 0) return;
+    state.drawnThisTurn.add(socket.id);
+    state.playerDiscards[socket.id].push(hand.shift());
+    console.log(`[us:draw]     ${code} — ${room.players.get(socket.id)?.name} drew to discard`);
+    broadcastUS(code);
+  });
+
+  // ── Tableau top card → foundation (no turn advance, either player) ────────────
+  socket.on('us:tableau-to-foundation', ({ code, fromCol }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    const col = state.tableau[fromCol];
+    if (!col || col.length === 0) return;
+    const card = col.at(-1);
+    if (!card.faceUp) return;
+    if (!canPlaceOnFoundation(card, state.foundations[card.suit])) return;
+    col.pop();
+    if (col.length > 0 && !col.at(-1).faceUp) col.at(-1).faceUp = true;
+    state.foundations[card.suit].push(card);
+    console.log(`[us:t-found]  ${code} — col${fromCol} ${card.rank}${card.suit[0]} → foundation`);
+    const won = Object.values(state.foundations).every(p => p.length === 13);
+    if (won) {
+      state.phase = 'resolution';
+      io.to(code).emit('us:game-over', { result: 'win' });
+      return;
+    }
+    broadcastUS(code);
+  });
+
+  // ── Foundation top card → tableau column (either player, any time) ──────────────
+  socket.on('us:foundation-to-tableau', ({ code, suit, toCol }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    const pile = state.foundations[suit];
+    if (!pile || pile.length === 0) return;
+    const col = state.tableau[toCol];
+    if (!col) return;
+    const card = pile.at(-1);
+    if (!canStackOnTableau(card, col.at(-1) ?? null)) return;
+    pile.pop();
+    col.push({ ...card, faceUp: true });
+    console.log(`[us:f-tab]    ${code} — ${card.rank}${card.suit[0]} foundation → col${toCol}`);
+    broadcastUS(code);
+  });
+
+  // ── Give up ────────────────────────────────────────────────────────────────────
+  socket.on('us:give-up', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    for (const col of state.tableau) for (const card of col) card.faceUp = true;
+    state.phase = 'resolution';
+    const name = room.players.get(socket.id)?.name ?? '?';
+    console.log(`[us:give-up]  ${code} — ${name} gave up`);
+    broadcastUS(code);
+    io.to(code).emit('us:game-over', { result: 'loss', givenUpBy: socket.id });
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────────────
