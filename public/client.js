@@ -1048,6 +1048,7 @@ function renderUSBoard() {
     document.getElementById('us-hand-count').textContent = myHand.length;
     sortHintEl.classList.remove('hidden');
     sortReadyBtnEl.classList.remove('hidden');
+    sortReadyBtnEl.disabled = (sortingReadyIds ?? []).includes(usMyId);
     const partnerReady = (sortingReadyIds ?? []).some(id => id !== usMyId);
     partnerReadyText.classList.toggle('hidden', !partnerReady);
     renderUSSortingHand();
