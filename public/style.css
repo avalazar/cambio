@@ -909,8 +909,7 @@ body:has(#game-screen:not(.hidden)) {
 }
 
 body:has(#game-screen:not(.hidden)) #app {
-  max-width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 2rem;
 }
 
 /* ── Peek phase controls ───────────────────────────────────── */
@@ -982,7 +981,7 @@ body:has(#game-screen:not(.hidden)) #app {
 /* Tableau */
 .us-tableau {
   display: flex;
-  gap: 5px;
+  gap: 0;
   justify-content: center;
   align-items: flex-start;
   overflow-x: auto;
@@ -995,6 +994,7 @@ body:has(#game-screen:not(.hidden)) #app {
   align-items: center;
   min-width: 52px;
   position: relative;
+  padding: 4px 7px 36px;
 }
 
 .us-column-cards {

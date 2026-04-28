@@ -583,21 +583,34 @@ io.on('connection', (socket) => {
   // ── Restart game (same room, same players, fresh deal) ────────────────────────
   socket.on('room:restart', ({ code }) => {
     const room = rooms.get(code);
-    if (!room?.cambioState) return;
-    if (room.cambioState.phase !== 'resolution') return;
-    if (!room.players.has(socket.id)) return;
-
+    if (!room || !room.players.has(socket.id)) return;
     const playerIds = [...room.players.keys()];
-    room.cambioState = createCambioState(playerIds);
-    const { playerOrder } = room.cambioState;
-    const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
-    for (const socketId of playerOrder) {
-      const view = getPlayerView(room.cambioState, socketId);
-      io.to(socketId).emit('game:started', {
-        game: 'cambio', playerOrder: playerList,
-        myIndex: playerOrder.indexOf(socketId), ...view,
-      });
-    }
+
+    if (room.cambioState) {
+      if (room.cambioState.phase !== 'resolution') return;
+      room.cambioState = createCambioState(playerIds);
+      const { playerOrder } = room.cambioState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+      for (const socketId of playerOrder) {
+        const view = getPlayerView(room.cambioState, socketId);
+        io.to(socketId).emit('game:started', {
+          game: 'cambio', playerOrder: playerList,
+          myIndex: playerOrder.indexOf(socketId), ...view,
+        });
+      }
+    } else if (room.usState) {
+      if (room.usState.phase !== 'resolution') return;
+      room.usState = createUnSolitaireState(playerIds);
+      const { playerOrder } = room.usState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+      for (const socketId of playerOrder) {
+        const view = getUnSolitaireView(room.usState, socketId);
+        io.to(socketId).emit('game:started', {
+          game: 'un-solitaire', playerOrder: playerList, myId: socketId, ...view,
+        });
+      }
+    } else return;
+
     console.log(`[room:restart] ${code} — restarted by ${room.players.get(socket.id)?.name}`);
   });
 
