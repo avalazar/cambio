@@ -860,6 +860,11 @@ body.is-unsolitaire .log-toggle-btn { display: none; }
   color: #aaa;
   text-align: center;
 }
+.resolution-record {
+  font-size: 0.8rem;
+  color: #666;
+  letter-spacing: 0.03em;
+}
 .resolution-players {
   display: flex;
   flex-direction: column;
@@ -1024,6 +1029,7 @@ body.is-sorting .us-hand-row {
 .us-column-cards {
   position: relative;
   width: 52px;
+  min-height: 382px; /* fits K→2 (12 cards): 74 + 11×28 */
 }
 
 .us-col-card {

@@ -119,9 +119,22 @@ const matchBtn             = document.getElementById('match-btn');
 
 // Resolution
 const resolutionOverlay    = document.getElementById('resolution-overlay');
+const resolutionTitle      = document.getElementById('resolution-title');
 const resolutionSubtitle   = document.getElementById('resolution-subtitle');
+const resolutionRecord     = document.getElementById('resolution-record');
 const resolutionPlayers    = document.getElementById('resolution-players');
 const playAgainBtn         = document.getElementById('play-again-btn');
+
+function getUSRecord() {
+  try { const r = JSON.parse(localStorage.getItem('us_record') || '{}'); return { wins: r.wins || 0, losses: r.losses || 0 }; }
+  catch { return { wins: 0, losses: 0 }; }
+}
+function recordUSResult(result) {
+  const r = getUSRecord();
+  if (result === 'win') r.wins++; else r.losses++;
+  localStorage.setItem('us_record', JSON.stringify(r));
+  return r;
+}
 
 const usUndoBtn            = document.getElementById('us-undo-btn');
 
@@ -737,6 +750,8 @@ socket.on('hand:update', ({ hand }) => {
 
 // ── Resolution ─────────────────────────────────────────────────────────────────
 socket.on('game:over', ({ hands, scores, playerOrder, cambioCallerId, callerPenalty, winnerId }) => {
+  resolutionTitle.textContent = 'Game Over';
+  resolutionRecord.textContent = '';
   const winnerName = playerOrder.find(p => p.id === winnerId)?.name ?? '?';
   const callerName = playerOrder.find(p => p.id === cambioCallerId)?.name ?? null;
   resolutionSubtitle.textContent = callerPenalty > 0
@@ -988,17 +1003,18 @@ socket.on('us:state', (view) => {
 socket.on('us:game-over', ({ result, givenUpBy }) => {
   if (!usState) return;
   usState.phase = 'resolution';
-  const overlay = document.getElementById('resolution-overlay');
-  const subtitle = document.getElementById('resolution-subtitle');
-  const players  = document.getElementById('resolution-players');
+  const record = recordUSResult(result);
   if (result === 'win') {
-    subtitle.textContent = 'You uncovered every card — you win!';
+    resolutionTitle.textContent = 'You Win!';
+    resolutionSubtitle.textContent = 'You built all four suits — well played!';
   } else {
+    resolutionTitle.textContent = 'Game Over';
     const quitter = usPlayerOrder.find(p => p.id === givenUpBy)?.name ?? '?';
-    subtitle.textContent = `${escapeHtml(quitter)} gave up.`;
+    resolutionSubtitle.textContent = `${escapeHtml(quitter)} gave up.`;
   }
-  players.innerHTML = '';
-  overlay.classList.remove('hidden');
+  resolutionRecord.textContent = `Record: ${record.wins}W – ${record.losses}L`;
+  resolutionPlayers.innerHTML = '';
+  resolutionOverlay.classList.remove('hidden');
 });
 
 // ── Give Up button ─────────────────────────────────────────────────────────────
