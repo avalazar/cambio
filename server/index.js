@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const { createCambioState, getPlayerView, getCardAction } = require('./cambio');
-const { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation } = require('./unsolitaire');
+const { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation, cloneUSState } = require('./unsolitaire');
 
 const app = express();
 const server = http.createServer(app);
@@ -624,6 +624,11 @@ io.on('connection', (socket) => {
     return room;
   }
 
+  function pushHistory(state) {
+    state.history.push(cloneUSState(state));
+    if (state.history.length > 30) state.history.shift();
+  }
+
   function broadcastUS(code) {
     const room = rooms.get(code);
     if (!room?.usState) return;
@@ -683,23 +688,24 @@ io.on('connection', (socket) => {
       card = myDiscard.at(-1);
     } else return;
 
-    let placed = false;
-
     if (targetType === 'foundation') {
       const pile = state.foundations[card.suit];
       if (!canPlaceOnFoundation(card, pile)) return;
-      pile.push(card);
-      placed = true;
     } else if (targetType === 'tableau') {
       const col = state.tableau[targetIndex];
       if (col === undefined) return;
       const topCard = col.length > 0 ? col.at(-1) : null;
       if (!canStackOnTableau(card, topCard)) return;
-      col.push({ ...card, faceUp: true });
-      placed = true;
     } else return;
 
-    if (!placed) return;
+    // All validations passed — snapshot before mutating.
+    pushHistory(state);
+
+    if (targetType === 'foundation') {
+      state.foundations[card.suit].push(card);
+    } else {
+      state.tableau[targetIndex].push({ ...card, faceUp: true });
+    }
 
     // Remove from source; advance turn only for hand plays.
     if (source === 'hand') {
@@ -732,6 +738,7 @@ io.on('connection', (socket) => {
     const myHand    = state.playerHands[socket.id];
     const myDiscard = state.playerDiscards[socket.id];
     if (myHand.length === 0) return;
+    pushHistory(state);
     const card = myHand.shift();
     myDiscard.push(card);
     state.drawnThisTurn.delete(socket.id);
@@ -761,6 +768,9 @@ io.on('connection', (socket) => {
     const dstTop = dst.length > 0 ? dst.at(-1) : null;
     if (!canStackOnTableau(stack[0], dstTop)) return;
 
+    // All validations passed — snapshot before mutating.
+    pushHistory(state);
+
     // Move the stack
     src.splice(cardIndex, stack.length);
     for (const c of stack) dst.push(c);
@@ -778,7 +788,11 @@ io.on('connection', (socket) => {
     if (!room) return;
     const state = room.usState;
     if (state.phase !== 'playing') return;
-    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) {
+      broadcastUS(code); // re-sync client if stale (e.g. hand-play already advanced turn)
+      return;
+    }
+    pushHistory(state);
     state.drawnThisTurn.delete(socket.id);
     state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
     console.log(`[us:end-turn] ${code} — ${room.players.get(socket.id)?.name} ended turn`);
@@ -795,6 +809,7 @@ io.on('connection', (socket) => {
     if (state.drawnThisTurn.has(socket.id)) return;
     const hand = state.playerHands[socket.id];
     if (hand.length === 0) return;
+    pushHistory(state);
     state.drawnThisTurn.add(socket.id);
     state.playerDiscards[socket.id].push(hand.shift());
     console.log(`[us:draw]     ${code} — ${room.players.get(socket.id)?.name} drew to discard`);
@@ -812,6 +827,7 @@ io.on('connection', (socket) => {
     const card = col.at(-1);
     if (!card.faceUp) return;
     if (!canPlaceOnFoundation(card, state.foundations[card.suit])) return;
+    pushHistory(state);
     col.pop();
     if (col.length > 0 && !col.at(-1).faceUp) col.at(-1).faceUp = true;
     state.foundations[card.suit].push(card);
@@ -837,9 +853,23 @@ io.on('connection', (socket) => {
     if (!col) return;
     const card = pile.at(-1);
     if (!canStackOnTableau(card, col.at(-1) ?? null)) return;
+    pushHistory(state);
     pile.pop();
     col.push({ ...card, faceUp: true });
     console.log(`[us:f-tab]    ${code} — ${card.rank}${card.suit[0]} foundation → col${toCol}`);
+    broadcastUS(code);
+  });
+
+  // ── Undo last move ─────────────────────────────────────────────────────────────
+  socket.on('us:undo', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+    if (state.history.length === 0) return;
+    const prev = state.history.pop();
+    Object.assign(state, prev);
+    console.log(`[us:undo]     ${code} — ${room.players.get(socket.id)?.name} undid a move`);
     broadcastUS(code);
   });
 

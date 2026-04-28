@@ -123,6 +123,8 @@ const resolutionSubtitle   = document.getElementById('resolution-subtitle');
 const resolutionPlayers    = document.getElementById('resolution-players');
 const playAgainBtn         = document.getElementById('play-again-btn');
 
+const usUndoBtn            = document.getElementById('us-undo-btn');
+
 // Toast
 const toastEl              = document.getElementById('toast');
 let toastTimer    = null;
@@ -315,6 +317,9 @@ socket.on('game:started', (payload) => {
     usBoard.classList.add('hidden');
     genericGameInfo.classList.add('hidden');
     resolutionOverlay.classList.add('hidden');
+    document.body.classList.remove('is-unsolitaire');
+    logToggleBtn.classList.remove('hidden');
+    usUndoBtn.classList.add('hidden');
     renderCambioBoard();
   } else if (payload.game === 'un-solitaire') {
     usState        = payload;
@@ -327,6 +332,9 @@ socket.on('game:started', (payload) => {
     usBoard.classList.remove('hidden');
     genericGameInfo.classList.add('hidden');
     resolutionOverlay.classList.add('hidden');
+    document.body.classList.add('is-unsolitaire');
+    logToggleBtn.classList.add('hidden');
+    usUndoBtn.classList.remove('hidden');
     renderUSBoard();
   } else {
     cambioBoard.classList.add('hidden');
@@ -998,6 +1006,10 @@ document.getElementById('us-give-up-btn').addEventListener('click', () => {
   socket.emit('us:give-up', { code: currentRoom });
 });
 
+usUndoBtn.addEventListener('click', () => {
+  socket.emit('us:undo', { code: currentRoom });
+});
+
 // ── Sort-ready button ──────────────────────────────────────────────────────────
 document.getElementById('us-sort-ready-btn').addEventListener('click', () => {
   if (!usState) return;
@@ -1031,7 +1043,8 @@ function renderUSBoard() {
   if (!usState) return;
   const { tableau, foundations, myHand, myDiscard,
           partnerHandSize, partnerDiscard,
-          currentTurnId, phase, sortingReadyIds, hasDrawnThisTurn } = usState;
+          currentTurnId, phase, sortingReadyIds, hasDrawnThisTurn, historySize } = usState;
+  usUndoBtn.disabled = !historySize || phase !== 'playing';
   const isMyTurn   = currentTurnId === usMyId;
   const partnerObj = usPlayerOrder.find(p => p.id !== usMyId);
   const myObj      = usPlayerOrder.find(p => p.id === usMyId);
@@ -1042,6 +1055,8 @@ function renderUSBoard() {
   const sortHintEl       = document.getElementById('us-sort-hint');
   const sortReadyBtnEl   = document.getElementById('us-sort-ready-btn');
   const partnerReadyText = document.getElementById('us-partner-ready-text');
+  document.body.classList.toggle('is-sorting', phase === 'sorting');
+
   if (phase === 'sorting') {
     handSection.classList.remove('hidden');
     pileArea.classList.add('hidden');

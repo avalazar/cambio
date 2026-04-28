@@ -57,6 +57,7 @@ function createUnSolitaireState(playerIds) {
     phase: 'sorting',
     sortingReady: new Set(),
     drawnThisTurn: new Set(),
+    history: [],
   };
 }
 
@@ -84,6 +85,7 @@ function getUnSolitaireView(state, playerId) {
     phase:             state.phase,
     sortingReadyIds:   [...state.sortingReady],
     hasDrawnThisTurn:  state.drawnThisTurn?.has(playerId) ?? false,
+    historySize:       state.history.length,
   };
 }
 
@@ -104,4 +106,23 @@ function canPlaceOnFoundation(card, foundationPile) {
     RANKS.indexOf(card.rank) === RANKS.indexOf(topRank) + 1;
 }
 
-module.exports = { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation };
+function cloneUSState(state) {
+  return {
+    tableau:        state.tableau.map(col => col.map(c => ({ ...c }))),
+    foundations: {
+      hearts:   [...state.foundations.hearts.map(c => ({ ...c }))],
+      diamonds: [...state.foundations.diamonds.map(c => ({ ...c }))],
+      clubs:    [...state.foundations.clubs.map(c => ({ ...c }))],
+      spades:   [...state.foundations.spades.map(c => ({ ...c }))],
+    },
+    playerHands:    Object.fromEntries(Object.entries(state.playerHands).map(([id, h]) => [id, h.map(c => ({ ...c }))])),
+    playerDiscards: Object.fromEntries(Object.entries(state.playerDiscards).map(([id, h]) => [id, h.map(c => ({ ...c }))])),
+    playerOrder:    [...state.playerOrder],
+    currentTurnIndex: state.currentTurnIndex,
+    phase:          state.phase,
+    sortingReady:   new Set(state.sortingReady),
+    drawnThisTurn:  new Set(state.drawnThisTurn),
+  };
+}
+
+module.exports = { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation, cloneUSState };

@@ -376,6 +376,22 @@ h2 {
 .log-toggle-btn:hover { border-color: #777; color: #bbb; background: transparent; }
 .log-toggle-btn.active { border-color: #64b5f6; color: #64b5f6; }
 
+.us-undo-btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #777;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.us-undo-btn:hover:not(:disabled) { border-color: #777; color: #bbb; background: transparent; }
+.us-undo-btn:disabled { opacity: 0.35; cursor: default; }
+
+body.is-unsolitaire .log-toggle-btn { display: none; }
+
 /* ── Cambio board layout ───────────────────────────────────── */
 .cambio-board {
   display: flex;
@@ -910,6 +926,14 @@ body:has(#game-screen:not(.hidden)) {
 
 body:has(#game-screen:not(.hidden)) #app {
   padding: 0.5rem 2rem;
+}
+
+body.is-sorting #app {
+  max-width: 720px;
+}
+
+body.is-sorting .us-hand-row {
+  flex-wrap: nowrap;
 }
 
 /* ── Peek phase controls ───────────────────────────────────── */
