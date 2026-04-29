@@ -986,6 +986,11 @@ body.is-sorting .us-hand-row {
   align-items: center;
   gap: 0.5rem;
 }
+.us-top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
 .us-give-up-btn {
   padding: 0.3rem 0.8rem;
@@ -1000,6 +1005,20 @@ body.is-sorting .us-hand-row {
   white-space: nowrap;
 }
 .us-give-up-btn:hover { border-color: #e94560; color: #e94560; background: transparent; }
+
+.us-autocomplete-btn {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid #4caf50;
+  color: #4caf50;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+.us-autocomplete-btn:hover { background: rgba(76,175,80,0.12); }
 
 /* Foundations */
 .us-foundations {

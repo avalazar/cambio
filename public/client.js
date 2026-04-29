@@ -341,6 +341,8 @@ socket.on('game:started', (payload) => {
     usOriginalHand = [...payload.myHand];
     usSortOrder    = payload.myHand.map((_, i) => i);
     usSelected     = null;
+    usDragSrc      = null;
+    usDragSrcIdx   = null;
     cambioBoard.classList.add('hidden');
     usBoard.classList.remove('hidden');
     genericGameInfo.classList.add('hidden');
@@ -1022,7 +1024,12 @@ document.getElementById('us-give-up-btn').addEventListener('click', () => {
   socket.emit('us:give-up', { code: currentRoom });
 });
 
+document.getElementById('us-autocomplete-btn').addEventListener('click', () => {
+  socket.emit('us:auto-complete', { code: currentRoom });
+});
+
 usUndoBtn.addEventListener('click', () => {
+  usUndoBtn.disabled = true; // prevent spam; re-enabled by renderUSBoard if history remains
   socket.emit('us:undo', { code: currentRoom });
 });
 
@@ -1185,6 +1192,14 @@ function renderUSBoard() {
 
   document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing');
 
+  const canAutoComplete = phase === 'playing'
+    && myHand.length === 0
+    && (myDiscard?.length ?? 0) === 0
+    && partnerHandSize === 0
+    && (partnerDiscard?.length ?? 0) === 0
+    && tableau.every(col => col.every(card => card.faceUp));
+  document.getElementById('us-autocomplete-btn').classList.toggle('hidden', !canAutoComplete);
+
   // Partner dock
   const partnerDockLabel = document.getElementById('us-dock-partner-label');
   partnerDockLabel.textContent = partnerObj ? escapeHtml(partnerObj.name) : 'Partner';
@@ -1209,6 +1224,7 @@ function renderUSBoard() {
 
 // ── Sorting-hand drag-and-drop ─────────────────────────────────────────────────
 let usDragSrcIdx = null;
+let usSortHandAbort = null; // AbortController for sorting-hand container listeners
 
 function renderUSSortingHand() {
   if (!usState) return;
@@ -1297,15 +1313,20 @@ function renderUSSortingHand() {
     });
   });
 
+  // Tear down previous container listeners before adding fresh ones.
+  if (usSortHandAbort) usSortHandAbort.abort();
+  usSortHandAbort = new AbortController();
+  const { signal } = usSortHandAbort;
+
   container.addEventListener('dragover', e => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     showIndicator(getInsertPos(e));
-  });
+  }, { signal });
 
   container.addEventListener('dragleave', e => {
     if (!container.contains(e.relatedTarget)) hideIndicator();
-  });
+  }, { signal });
 
   container.addEventListener('drop', e => {
     e.preventDefault();
@@ -1318,7 +1339,7 @@ function renderUSSortingHand() {
     usSortOrder = newOrder;
     usDragSrcIdx = null;
     renderUSSortingHand();
-  });
+  }, { signal });
 }
 
 // ── Routing helper: dispatch whatever is selected to a target ─────────────────
@@ -1344,6 +1365,21 @@ function usDispatch(targetType, targetIndex) {
   usSelected = null;
   renderUSBoard();
 }
+
+// ── Tableau double-click → auto-place top card on foundation ─────────────────
+document.getElementById('us-tableau').addEventListener('dblclick', e => {
+  if (!usState || usState.phase !== 'playing') return;
+  const cardEl = e.target.closest('.us-col-card[data-col]');
+  if (!cardEl || !cardEl.classList.contains('face-up')) return;
+  const colIdx  = parseInt(cardEl.dataset.col, 10);
+  const cardIdx = parseInt(cardEl.dataset.card, 10);
+  const col = usState.tableau[colIdx];
+  if (!col || cardIdx !== col.length - 1) return; // only top card
+  const card = col[cardIdx];
+  if (!canPlaceOnFoundation(card, usState.foundations[card.suit])) return;
+  usSelected = null;
+  socket.emit('us:tableau-to-foundation', { code: currentRoom, fromCol: colIdx });
+});
 
 // ── Tableau click ─────────────────────────────────────────────────────────────
 document.getElementById('us-tableau').addEventListener('click', e => {
@@ -1544,6 +1580,15 @@ document.getElementById('us-my-discard').addEventListener('dragend', () => {
 });
 
 // ── Discard card click: select it ─────────────────────────────────────────────
+document.getElementById('us-my-discard').addEventListener('dblclick', () => {
+  if (!usState || usState.phase !== 'playing') return;
+  const card = usState.myDiscard?.at(-1);
+  if (!card) return;
+  if (!canPlaceOnFoundation(card, usState.foundations[card.suit])) return;
+  usSelected = null;
+  socket.emit('us:play', { code: currentRoom, source: 'discard', targetType: 'foundation', targetIndex: card.suit });
+});
+
 document.getElementById('us-my-discard').addEventListener('click', () => {
   if (!usState || usState.phase !== 'playing') return;
   if (usState.myDiscard.length === 0) return;

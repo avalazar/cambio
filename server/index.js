@@ -893,6 +893,38 @@ io.on('connection', (socket) => {
     io.to(code).emit('us:game-over', { result: 'loss', givenUpBy: socket.id });
   });
 
+  // ── Auto-complete: place all remaining face-up tableau cards on foundations ────
+  socket.on('us:auto-complete', ({ code }) => {
+    const room = usRoom(code);
+    if (!room) return;
+    const state = room.usState;
+    if (state.phase !== 'playing') return;
+
+    const allHandsEmpty    = Object.values(state.playerHands).every(h => h.length === 0);
+    const allDiscardsEmpty = Object.values(state.playerDiscards).every(d => d.length === 0);
+    const allFaceUp        = state.tableau.every(col => col.every(c => c.faceUp));
+    if (!allHandsEmpty || !allDiscardsEmpty || !allFaceUp) return;
+
+    pushHistory(state);
+
+    // Collect all cards still in the tableau, sort by rank, fill foundations.
+    const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+    const bySuit = { hearts: [], diamonds: [], clubs: [], spades: [] };
+    for (const col of state.tableau) {
+      for (const card of col) bySuit[card.suit].push(card);
+      col.length = 0; // clear column
+    }
+    for (const [suit, cards] of Object.entries(bySuit)) {
+      cards.sort((a, b) => RANKS.indexOf(a.rank) - RANKS.indexOf(b.rank));
+      state.foundations[suit].push(...cards);
+    }
+
+    state.phase = 'resolution';
+    console.log(`[us:autocomplete] ${code} — ${room.players.get(socket.id)?.name} auto-completed`);
+    broadcastUS(code);
+    io.to(code).emit('us:game-over', { result: 'win' });
+  });
+
   // ── Disconnect ─────────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     console.log(`[disconnect] ${socket.id}`);
