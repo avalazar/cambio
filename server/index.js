@@ -110,6 +110,7 @@ io.on('connection', (socket) => {
       code, hostId: socket.id,
       players: new Map([[socket.id, { id: socket.id, name: trimmedName }]]),
       game: 'cambio', phase: 'lobby',
+      gameCount: 0,
     };
     rooms.set(code, room);
     socket.leave('global');
@@ -584,7 +585,12 @@ io.on('connection', (socket) => {
   socket.on('room:restart', ({ code }) => {
     const room = rooms.get(code);
     if (!room || !room.players.has(socket.id)) return;
-    const playerIds = [...room.players.keys()];
+
+    // Alternate who goes first each game.
+    room.gameCount = (room.gameCount ?? 0) + 1;
+    const rawIds = [...room.players.keys()];
+    const offset = room.gameCount % rawIds.length;
+    const playerIds = [...rawIds.slice(offset), ...rawIds.slice(0, offset)];
 
     if (room.cambioState) {
       if (room.cambioState.phase !== 'resolution') return;
@@ -611,7 +617,7 @@ io.on('connection', (socket) => {
       }
     } else return;
 
-    console.log(`[room:restart] ${code} — restarted by ${room.players.get(socket.id)?.name}`);
+    console.log(`[room:restart] ${code} — game ${room.gameCount}, ${room.players.get(playerIds[0])?.name} goes first`);
   });
 
   // ════════════════════════════════════════════════════════════════════════════════
