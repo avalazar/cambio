@@ -798,6 +798,7 @@ io.on('connection', (socket) => {
       broadcastUS(code); // re-sync client if stale (e.g. hand-play already advanced turn)
       return;
     }
+    if (!state.drawnThisTurn.has(socket.id)) return; // must draw before ending turn
     pushHistory(state);
     state.drawnThisTurn.delete(socket.id);
     state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;

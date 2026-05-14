@@ -1190,7 +1190,7 @@ function renderUSBoard() {
     myDiscardDisplay.innerHTML = '<div class="us-col-empty"></div>';
   }
 
-  document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing');
+  document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing' || !hasDrawnThisTurn);
 
   const canAutoComplete = phase === 'playing'
     && myHand.length === 0
