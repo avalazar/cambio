@@ -42,7 +42,7 @@ let logVisible = false;
 // True while the player has clicked "Call Cambio" but not yet confirmed or cancelled.
 let cambioConfirmPending = false;
 
-const GAME_LABELS  = { cambio: 'Cambio', 'un-solitaire': 'Un-Solitaire' };
+const GAME_LABELS  = { cambio: 'Cambio', 'un-solitaire': 'Un-Solitaire', 'five-suits': 'Five Suits' };
 const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
 const RED_SUITS    = new Set(['hearts', 'diamonds']);
 
@@ -168,6 +168,12 @@ socket.on('connect', () => {
   connectionStatus.textContent = 'Connected';
   connectionStatus.className = 'status-badge connected';
   gotoCreateBtn.disabled = false; gotoJoinBtn.disabled = false;
+  if (currentRoom && usMyId) {
+    socket.emit('us:rejoin', { code: currentRoom, oldId: usMyId });
+  }
+  if (currentRoom && fsMyId) {
+    socket.emit('fs:rejoin', { code: currentRoom, oldId: fsMyId });
+  }
 });
 socket.on('disconnect', () => {
   isConnected = false;
@@ -305,6 +311,20 @@ let usSortOrder    = [];   // permutation of usOriginalHand indices
 let usSelected     = null; // { type: 'tableau'|'hand'|'discard', colIndex?, cardIndex? }
 let usDragSrc      = null; // { colIdx, cardIdx } during tableau drag
 
+// ── Five Suits state ───────────────────────────────────────────────────────────
+let fsState       = null;
+let fsMyId        = null;
+let fsPlayerOrder = [];
+let fsSelected    = new Set(); // indices into sorted hand display
+let fsSortMode    = 'rank';    // 'rank' | 'suit'
+let fsHandMap     = [];        // sorted display index → original hand index
+
+const FS_SUIT_SYMBOLS = { spades: '♠', hearts: '♥', clubs: '♣', diamonds: '♦', stars: '★', joker: '★' };
+const FS_RANKS = ['3','4','5','6','7','8','9','10','J','Q','K'];
+const FS_SUITS = ['spades','hearts','clubs','diamonds','stars'];
+
+const fsBoardEl = document.getElementById('fivesuits-board');
+
 const SUIT_SYMBOLS_US = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
 const RED_SUITS_US    = new Set(['hearts', 'diamonds']);
 const RANKS_US        = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
@@ -351,9 +371,28 @@ socket.on('game:started', (payload) => {
     logToggleBtn.classList.add('hidden');
     usUndoBtn.classList.remove('hidden');
     renderUSBoard();
+  } else if (payload.game === 'five-suits') {
+    fsState       = payload;
+    fsMyId        = payload.myId;
+    fsPlayerOrder = payload.playerOrder ?? [];
+    fsSelected    = new Set();
+    fsSortMode    = 'rank';
+    fsHandMap     = [];
+    cambioBoard.classList.add('hidden');
+    usBoard.classList.add('hidden');
+    fsBoardEl.classList.remove('hidden');
+    genericGameInfo.classList.add('hidden');
+    resolutionOverlay.classList.add('hidden');
+    document.getElementById('fs-round-end-overlay').classList.add('hidden');
+    document.getElementById('fs-scores-overlay').classList.add('hidden');
+    document.body.classList.remove('is-unsolitaire');
+    logToggleBtn.classList.remove('hidden');
+    usUndoBtn.classList.add('hidden');
+    renderFSBoard();
   } else {
     cambioBoard.classList.add('hidden');
     usBoard.classList.add('hidden');
+    fsBoardEl.classList.add('hidden');
     genericGameInfo.classList.remove('hidden');
     gameTitle.textContent = GAME_LABELS[payload.game] ?? payload.game;
     gameInfo.textContent  = `Players: ${(payload.players ?? []).map(p => p.name).join(', ')}`;
@@ -997,6 +1036,13 @@ function renderCambioBoard() {
 // ── Un-Solitaire ─────────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════════════
 
+socket.on('us:rejoined', ({ newId }) => {
+  const oldId = usMyId;
+  usMyId = newId;
+  usPlayerOrder = usPlayerOrder.map(p => p.id === oldId ? { ...p, id: newId } : p);
+  renderUSBoard();
+});
+
 socket.on('us:state', (view) => {
   usState = { ...usState, ...view };
   renderUSBoard();
@@ -1190,7 +1236,7 @@ function renderUSBoard() {
     myDiscardDisplay.innerHTML = '<div class="us-col-empty"></div>';
   }
 
-  document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing' || !hasDrawnThisTurn);
+  document.getElementById('us-end-turn-btn').classList.toggle('hidden', !isMyTurn || phase !== 'playing' || (!hasDrawnThisTurn && myHand.length > 0));
 
   const canAutoComplete = phase === 'playing'
     && myHand.length === 0
@@ -1601,6 +1647,371 @@ document.getElementById('us-end-turn-btn').addEventListener('click', () => {
   if (!usState || usState.currentTurnId !== usMyId) return;
   usSelected = null;
   socket.emit('us:end-turn', { code: currentRoom });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ── Five Suits ───────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════════
+
+socket.on('fs:state', (view) => {
+  fsState = { ...fsState, ...view };
+  renderFSBoard();
+});
+
+socket.on('fs:game-over', ({ playerOrder, roundScores, totals, winnerId }) => {
+  if (!fsState) return;
+  fsState.phase = 'game-over';
+  document.getElementById('fs-round-end-overlay').classList.add('hidden');
+  resolutionTitle.textContent = 'Five Suits — Game Over';
+  resolutionSubtitle.textContent = '';
+  resolutionRecord.textContent = '';
+  const winnerName = playerOrder.find(p => p.id === winnerId)?.name ?? '?';
+  resolutionPlayers.innerHTML = `
+    <p style="text-align:center;color:#aaa;font-size:0.85rem;margin-bottom:0.5rem">Winner: <strong style="color:#4caf50">${escapeHtml(winnerName)}</strong></p>
+    <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+      <thead>
+        <tr>
+          <th style="text-align:left;color:#555;padding:0.25rem 0.4rem">Player</th>
+          ${Array.from({length: roundScores[playerOrder[0].id]?.length ?? 0}, (_, i) => `<th style="color:#555;padding:0.25rem 0.3rem">R${i+1}</th>`).join('')}
+          <th style="color:#e0e0e0;padding:0.25rem 0.4rem">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${playerOrder.map(p => `
+          <tr style="${p.id === winnerId ? 'color:#4caf50' : 'color:#e0e0e0'}">
+            <td style="text-align:left;padding:0.25rem 0.4rem;font-weight:${p.id === winnerId ? 700 : 400}">${escapeHtml(p.name)}${p.id === fsMyId ? ' (you)' : ''}</td>
+            ${(roundScores[p.id] ?? []).map(s => `<td style="text-align:center;padding:0.25rem 0.3rem">${s}</td>`).join('')}
+            <td style="text-align:center;padding:0.25rem 0.4rem;font-weight:700">${totals[p.id] ?? 0}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  resolutionOverlay.classList.remove('hidden');
+});
+
+socket.on('fs:rejoined', ({ newId, playerOrder }) => {
+  const oldId = fsMyId;
+  fsMyId = newId;
+  if (playerOrder) {
+    const newOrderIds = playerOrder;
+    fsPlayerOrder = fsPlayerOrder.map(p => {
+      const newPosIdx = newOrderIds.indexOf(p.id === oldId ? newId : p.id);
+      return newPosIdx !== -1 ? p : p;
+    });
+    // Rebuild fsPlayerOrder ids from new playerOrder
+    fsPlayerOrder = fsPlayerOrder.map(p => p.id === oldId ? { ...p, id: newId } : p);
+  }
+  renderFSBoard();
+});
+
+// ── Five Suits rendering ───────────────────────────────────────────────────────
+
+function fsBuildHandMap(hand, wildRank) {
+  const indices = hand.map((_, i) => i);
+  if (fsSortMode === 'rank') {
+    indices.sort((a, b) => {
+      const rankA = hand[a].joker ? 99 : FS_RANKS.indexOf(hand[a].rank);
+      const rankB = hand[b].joker ? 99 : FS_RANKS.indexOf(hand[b].rank);
+      if (rankA !== rankB) return rankA - rankB;
+      const suitA = hand[a].joker ? 99 : FS_SUITS.indexOf(hand[a].suit);
+      const suitB = hand[b].joker ? 99 : FS_SUITS.indexOf(hand[b].suit);
+      return suitA - suitB;
+    });
+  } else {
+    indices.sort((a, b) => {
+      const suitA = hand[a].joker ? 99 : FS_SUITS.indexOf(hand[a].suit);
+      const suitB = hand[b].joker ? 99 : FS_SUITS.indexOf(hand[b].suit);
+      if (suitA !== suitB) return suitA - suitB;
+      const rankA = hand[a].joker ? 99 : FS_RANKS.indexOf(hand[a].rank);
+      const rankB = hand[b].joker ? 99 : FS_RANKS.indexOf(hand[b].rank);
+      return rankA - rankB;
+    });
+  }
+  return indices;
+}
+
+function fsCardHtml(card, selected, wildRank, displayIdx) {
+  const selClass = selected ? ' selected' : '';
+  const idxAttr  = displayIdx !== undefined ? ` data-display-idx="${displayIdx}"` : '';
+  if (card.joker) {
+    return `<div class="fs-card joker${selClass}"${idxAttr}>
+      <span class="fs-card-tl">Jo<br>★</span>
+      <span class="fs-card-suit">★</span>
+    </div>`;
+  }
+  const sym      = FS_SUIT_SYMBOLS[card.suit] ?? card.suit[0];
+  const suitCls  = card.suit;
+  const wildCls  = card.rank === wildRank ? ' wild-rank' : '';
+  return `<div class="fs-card ${suitCls}${wildCls}${selClass}"${idxAttr}>
+    <span class="fs-card-tl">${card.rank}<br>${sym}</span>
+    <span class="fs-card-suit">${sym}</span>
+  </div>`;
+}
+
+function renderFSBoard() {
+  if (!fsState) return;
+  const {
+    myHand, discardTop, discardCount, drawCount,
+    melds, playerOrder, currentTurnId, phase,
+    round, wildRank, roundScores, hasDrawn,
+    goOutPlayerId, handSizes,
+  } = fsState;
+
+  const isMyTurn = currentTurnId === fsMyId;
+  const iHaveDrawn = hasDrawn.includes(fsMyId);
+
+  // Info bar
+  document.getElementById('fs-round-num').textContent = round;
+  document.getElementById('fs-wild-rank').textContent = wildRank;
+
+  // Rebuild hand map
+  fsHandMap = fsBuildHandMap(myHand, wildRank);
+
+  // Draw pile
+  const drawPileEl = document.getElementById('fs-draw-pile');
+  const canDraw = isMyTurn && ['playing', 'final-round'].includes(phase) && !iHaveDrawn;
+  drawPileEl.innerHTML = `<div class="fs-draw-card${canDraw ? ' drawable' : ''}">
+    <div class="fs-card-back-inner"></div>
+  </div>`;
+  document.getElementById('fs-draw-count').textContent = `${drawCount} left`;
+
+  // Discard pile
+  const discardTopEl = document.getElementById('fs-discard-top');
+  if (discardTop) {
+    discardTopEl.innerHTML = fsCardHtml(discardTop, false, wildRank);
+    const topCardEl = discardTopEl.firstElementChild;
+    if (topCardEl) {
+      topCardEl.classList.add('fs-discard-card');
+      if (canDraw) topCardEl.classList.add('drawable');
+    }
+  } else {
+    discardTopEl.innerHTML = `<div class="fs-card-empty">Empty</div>`;
+  }
+  document.getElementById('fs-discard-count').textContent = `${discardCount} in pile`;
+
+  // Turn indicator
+  const turnEl = document.getElementById('fs-turn-indicator');
+  if (phase === 'round-end') {
+    turnEl.textContent = 'Round complete — waiting for all players…';
+    turnEl.className = 'fs-turn-indicator';
+  } else if (phase === 'final-round') {
+    const goOutName = fsPlayerOrder.find(p => p.id === goOutPlayerId)?.name ?? '?';
+    if (isMyTurn) {
+      turnEl.textContent = iHaveDrawn ? 'Your turn — Meld or Discard (final round)' : 'Your turn — Draw a card (final round)';
+      turnEl.className = 'fs-turn-indicator my-turn';
+    } else {
+      const curName = fsPlayerOrder.find(p => p.id === currentTurnId)?.name ?? '?';
+      turnEl.textContent = `${escapeHtml(goOutName)} went out — ${escapeHtml(curName)}'s final turn`;
+      turnEl.className = 'fs-turn-indicator';
+    }
+  } else if (phase === 'game-over') {
+    turnEl.textContent = 'Game over!';
+    turnEl.className = 'fs-turn-indicator';
+  } else {
+    if (isMyTurn) {
+      turnEl.textContent = iHaveDrawn ? 'Your turn — Meld or Discard' : 'Your turn — Draw a card';
+      turnEl.className = 'fs-turn-indicator my-turn';
+    } else {
+      const curName = fsPlayerOrder.find(p => p.id === currentTurnId)?.name ?? '?';
+      turnEl.textContent = `${escapeHtml(curName)}'s turn`;
+      turnEl.className = 'fs-turn-indicator';
+    }
+  }
+
+  // Opponents row
+  const opponentsEl = document.getElementById('fs-opponents-row');
+  const opponents = fsPlayerOrder.filter(p => p.id !== fsMyId);
+  opponentsEl.innerHTML = opponents.map(p => {
+    const count = handSizes[p.id] ?? 0;
+    const isActive = p.id === currentTurnId;
+    return `<div class="fs-opponent-chip${isActive ? ' active-turn' : ''}">
+      <span class="fs-opponent-name">${escapeHtml(p.name)}</span>
+      <span class="fs-opponent-count">${count} card${count !== 1 ? 's' : ''}</span>
+    </div>`;
+  }).join('');
+
+  // Melds area
+  const meldsEl = document.getElementById('fs-melds-area');
+  const allPlayersWithMelds = playerOrder.filter(id => (melds[id]?.length ?? 0) > 0);
+  if (allPlayersWithMelds.length === 0) {
+    meldsEl.innerHTML = '<p class="fs-melds-empty">No melds yet</p>';
+  } else {
+    meldsEl.innerHTML = allPlayersWithMelds.map(id => {
+      const name = fsPlayerOrder.find(p => p.id === id)?.name ?? id;
+      const playerMelds = melds[id] ?? [];
+      const meldsHtml = playerMelds.map(meld => {
+        const cardsHtml = meld.cards.map(c => fsCardHtml(c, false, wildRank)).join('');
+        return `<div class="fs-meld-row">
+          <span class="fs-meld-type-badge">${meld.type}</span>
+          <div class="fs-meld-cards">${cardsHtml}</div>
+        </div>`;
+      }).join('');
+      return `<div class="fs-meld-group">
+        <div class="fs-meld-label">${escapeHtml(name)}${id === fsMyId ? ' (you)' : ''}</div>
+        ${meldsHtml}
+      </div>`;
+    }).join('');
+  }
+
+  // Hand
+  document.getElementById('fs-hand-count').textContent = myHand.length;
+  const handEl = document.getElementById('fs-hand-row');
+  handEl.innerHTML = fsHandMap.map((origIdx, dispIdx) => {
+    const card = myHand[origIdx];
+    return fsCardHtml(card, fsSelected.has(dispIdx), wildRank, dispIdx);
+  }).join('');
+
+  // Sort button active states
+  document.getElementById('fs-sort-rank-btn').classList.toggle('active', fsSortMode === 'rank');
+  document.getElementById('fs-sort-suit-btn').classList.toggle('active', fsSortMode === 'suit');
+
+  // Action buttons
+  const meldBtn    = document.getElementById('fs-meld-btn');
+  const discardBtn = document.getElementById('fs-discard-btn');
+  const canAct     = isMyTurn && iHaveDrawn && ['playing', 'final-round'].includes(phase);
+  meldBtn.disabled    = !(canAct && fsSelected.size >= 3);
+  discardBtn.disabled = !(canAct && fsSelected.size === 1);
+
+  // Round-end overlay
+  const roundEndOverlay = document.getElementById('fs-round-end-overlay');
+  if (phase === 'round-end') {
+    document.getElementById('fs-round-end-title').textContent = `Round ${round} Complete`;
+    document.getElementById('fs-next-round-num').textContent  = round + 1;
+
+    // Show per-player scores for this round
+    const lastRoundIdx = (roundScores[playerOrder[0]]?.length ?? 1) - 1;
+    const roundEndContent = document.getElementById('fs-round-end-content');
+    roundEndContent.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+      <thead>
+        <tr>
+          <th style="text-align:left;color:#555;padding:0.25rem 0.4rem">Player</th>
+          <th style="color:#555;padding:0.25rem 0.4rem">This Round</th>
+          <th style="color:#e0e0e0;padding:0.25rem 0.4rem">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${playerOrder.map(id => {
+          const pName = fsPlayerOrder.find(p => p.id === id)?.name ?? id;
+          const scores = roundScores[id] ?? [];
+          const thisRound = scores[scores.length - 1] ?? 0;
+          const total = scores.reduce((s, v) => s + v, 0);
+          return `<tr style="color:#e0e0e0">
+            <td style="text-align:left;padding:0.25rem 0.4rem">${escapeHtml(pName)}${id === fsMyId ? ' (you)' : ''}</td>
+            <td style="text-align:center;padding:0.25rem 0.4rem">${thisRound}</td>
+            <td style="text-align:center;padding:0.25rem 0.4rem;font-weight:700">${total}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+    roundEndOverlay.classList.remove('hidden');
+  } else {
+    roundEndOverlay.classList.add('hidden');
+  }
+}
+
+// ── Scores overlay ─────────────────────────────────────────────────────────────
+function renderFSScores() {
+  if (!fsState) return;
+  const { playerOrder, roundScores } = fsState;
+  const maxRounds = Math.max(...playerOrder.map(id => (roundScores[id] ?? []).length));
+  const headerCols = Array.from({ length: maxRounds }, (_, i) => `<th style="color:#555;padding:0.2rem 0.3rem">R${i+1}</th>`).join('');
+  const rows = playerOrder.map(id => {
+    const pName  = fsPlayerOrder.find(p => p.id === id)?.name ?? id;
+    const scores = roundScores[id] ?? [];
+    const total  = scores.reduce((s, v) => s + v, 0);
+    const cells  = Array.from({ length: maxRounds }, (_, i) => `<td style="text-align:center;padding:0.2rem 0.3rem">${scores[i] ?? '—'}</td>`).join('');
+    return `<tr style="color:#e0e0e0">
+      <td style="text-align:left;padding:0.2rem 0.4rem">${escapeHtml(pName)}${id === fsMyId ? ' (you)' : ''}</td>
+      ${cells}
+      <td style="text-align:center;padding:0.2rem 0.4rem;font-weight:700">${total}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('fs-scores-content').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead>
+        <tr>
+          <th style="text-align:left;color:#555;padding:0.2rem 0.4rem">Player</th>
+          ${headerCols}
+          <th style="color:#e0e0e0;padding:0.2rem 0.4rem">Total</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ── Button handlers ─────────────────────────────────────────────────────────────
+document.getElementById('fs-scores-btn').addEventListener('click', () => {
+  renderFSScores();
+  document.getElementById('fs-scores-overlay').classList.remove('hidden');
+});
+
+document.getElementById('fs-scores-close').addEventListener('click', () => {
+  document.getElementById('fs-scores-overlay').classList.add('hidden');
+});
+
+document.getElementById('fs-sort-rank-btn').addEventListener('click', () => {
+  fsSortMode = 'rank';
+  fsSelected = new Set();
+  renderFSBoard();
+});
+
+document.getElementById('fs-sort-suit-btn').addEventListener('click', () => {
+  fsSortMode = 'suit';
+  fsSelected = new Set();
+  renderFSBoard();
+});
+
+document.getElementById('fs-meld-btn').addEventListener('click', () => {
+  if (!fsState || fsSelected.size < 3) return;
+  const origIndices = [...fsSelected].map(dispIdx => fsHandMap[dispIdx]);
+  fsSelected = new Set();
+  socket.emit('fs:meld', { code: currentRoom, indices: origIndices });
+});
+
+document.getElementById('fs-discard-btn').addEventListener('click', () => {
+  if (!fsState || fsSelected.size !== 1) return;
+  const dispIdx = [...fsSelected][0];
+  const origIdx = fsHandMap[dispIdx];
+  fsSelected = new Set();
+  socket.emit('fs:discard', { code: currentRoom, index: origIdx });
+});
+
+document.getElementById('fs-next-round-btn').addEventListener('click', () => {
+  socket.emit('fs:round-ready', { code: currentRoom });
+});
+
+// ── Draw pile click ────────────────────────────────────────────────────────────
+document.getElementById('fs-draw-pile').addEventListener('click', () => {
+  if (!fsState) return;
+  const { phase, currentTurnId, hasDrawn } = fsState;
+  if (!['playing', 'final-round'].includes(phase)) return;
+  if (currentTurnId !== fsMyId) return;
+  if (hasDrawn.includes(fsMyId)) return;
+  socket.emit('fs:draw-deck', { code: currentRoom });
+});
+
+// ── Discard top click ──────────────────────────────────────────────────────────
+document.getElementById('fs-discard-top').addEventListener('click', () => {
+  if (!fsState) return;
+  const { phase, currentTurnId, hasDrawn, discardTop } = fsState;
+  if (!discardTop) return;
+  if (!['playing', 'final-round'].includes(phase)) return;
+  if (currentTurnId !== fsMyId) return;
+  if (hasDrawn.includes(fsMyId)) return;
+  socket.emit('fs:draw-discard', { code: currentRoom });
+});
+
+// ── Hand card click ────────────────────────────────────────────────────────────
+document.getElementById('fs-hand-row').addEventListener('click', (e) => {
+  const cardEl = e.target.closest('[data-display-idx]');
+  if (!cardEl) return;
+  const dispIdx = parseInt(cardEl.dataset.displayIdx, 10);
+  if (fsSelected.has(dispIdx)) {
+    fsSelected.delete(dispIdx);
+  } else {
+    fsSelected.add(dispIdx);
+  }
+  // Update just the action buttons and card selection states without full re-render
+  renderFSBoard();
 });
 
 // ── Utility ────────────────────────────────────────────────────────────────────

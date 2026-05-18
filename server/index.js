@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const { createCambioState, getPlayerView, getCardAction } = require('./cambio');
 const { createUnSolitaireState, getUnSolitaireView, canStackOnTableau, canPlaceOnFoundation, cloneUSState } = require('./unsolitaire');
+const { createFiveSuitsState, getFiveSuitsView, validateMeld, scorePenalty } = require('./fivesuits');
 
 const app = express();
 const server = http.createServer(app);
@@ -142,7 +143,7 @@ io.on('connection', (socket) => {
   socket.on('room:selectGame', ({ code, game }) => {
     const room = rooms.get(code);
     if (!room || room.hostId !== socket.id) return;
-    if (!['cambio', 'un-solitaire'].includes(game)) return;
+    if (!['cambio', 'un-solitaire', 'five-suits'].includes(game)) return;
     room.game = game;
     emitRoomUpdate(code);
     broadcastRoomList();
@@ -176,6 +177,17 @@ io.on('connection', (socket) => {
         io.to(socketId).emit('game:started', { game: 'un-solitaire', playerOrder: playerList, myId: socketId, ...view });
       }
       console.log(`[game:start]  ${code} — un-solitaire`);
+    } else if (room.game === 'five-suits') {
+      if (room.players.size < 2 || room.players.size > 6) return;
+      const playerIds = [...room.players.keys()];
+      room.fsState = createFiveSuitsState(playerIds, 1, null);
+      const { playerOrder } = room.fsState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+      for (const socketId of playerOrder) {
+        const view = getFiveSuitsView(room.fsState, socketId);
+        io.to(socketId).emit('game:started', { game: 'five-suits', playerOrder: playerList, myId: socketId, ...view });
+      }
+      console.log(`[game:start]  ${code} — five-suits (${room.players.size}p)`);
     } else {
       io.to(code).emit('game:started', { game: room.game, players: [...room.players.values()] });
       console.log(`[game:start]  ${code} — ${room.game}`);
@@ -615,6 +627,17 @@ io.on('connection', (socket) => {
           game: 'un-solitaire', playerOrder: playerList, myId: socketId, ...view,
         });
       }
+    } else if (room.fsState) {
+      if (!['game-over'].includes(room.fsState.phase)) return;
+      room.fsState = createFiveSuitsState(playerIds, 1, null);
+      const { playerOrder } = room.fsState;
+      const playerList = playerOrder.map(id => ({ id, name: room.players.get(id).name }));
+      for (const socketId of playerOrder) {
+        const view = getFiveSuitsView(room.fsState, socketId);
+        io.to(socketId).emit('game:started', {
+          game: 'five-suits', playerOrder: playerList, myId: socketId, ...view,
+        });
+      }
     } else return;
 
     console.log(`[room:restart] ${code} — game ${room.gameCount}, ${room.players.get(playerIds[0])?.name} goes first`);
@@ -798,7 +821,10 @@ io.on('connection', (socket) => {
       broadcastUS(code); // re-sync client if stale (e.g. hand-play already advanced turn)
       return;
     }
-    if (!state.drawnThisTurn.has(socket.id)) return; // must draw before ending turn
+    if (!state.drawnThisTurn.has(socket.id) && state.playerHands[socket.id]?.length > 0) {
+      broadcastUS(code); // re-sync stale client
+      return;
+    }
     pushHistory(state);
     state.drawnThisTurn.delete(socket.id);
     state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
@@ -924,6 +950,265 @@ io.on('connection', (socket) => {
     console.log(`[us:autocomplete] ${code} — ${room.players.get(socket.id)?.name} auto-completed`);
     broadcastUS(code);
     io.to(code).emit('us:game-over', { result: 'win' });
+  });
+
+  // ── Rejoin after socket reconnect ─────────────────────────────────────────────
+  socket.on('us:rejoin', ({ code, oldId }) => {
+    const room = rooms.get(code);
+    if (!room?.usState) return;
+    if (!room.players.has(oldId)) return;
+    if (socket.id === oldId) return; // already using same id, no swap needed
+
+    const playerInfo = room.players.get(oldId);
+    room.players.delete(oldId);
+    room.players.set(socket.id, playerInfo);
+    if (room.hostId === oldId) room.hostId = socket.id;
+    socket.join(code);
+
+    function swapId(obj) {
+      if (oldId in obj) { obj[socket.id] = obj[oldId]; delete obj[oldId]; }
+    }
+
+    const updateSnap = (snap) => {
+      const i = snap.playerOrder.indexOf(oldId);
+      if (i !== -1) snap.playerOrder[i] = socket.id;
+      swapId(snap.playerHands);
+      swapId(snap.playerDiscards);
+      if (snap.drawnThisTurn.has(oldId)) { snap.drawnThisTurn.delete(oldId); snap.drawnThisTurn.add(socket.id); }
+      if (snap.sortingReady.has(oldId))  { snap.sortingReady.delete(oldId);  snap.sortingReady.add(socket.id); }
+    };
+
+    updateSnap(room.usState);
+    for (const snap of room.usState.history) updateSnap(snap);
+
+    console.log(`[us:rejoin]  ${code} — ${playerInfo.name} rejoined (${oldId.slice(-4)} → ${socket.id.slice(-4)})`);
+    socket.emit('us:rejoined', { newId: socket.id });
+    broadcastUS(code);
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ── Five Suits events ─────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════════
+
+  function fsRoom(code) {
+    const room = rooms.get(code);
+    if (!room?.fsState || !room.players.has(socket.id)) return null;
+    return room;
+  }
+
+  function broadcastFS(code) {
+    const room = rooms.get(code);
+    if (!room?.fsState) return;
+    for (const socketId of room.fsState.playerOrder) {
+      io.to(socketId).emit('fs:state', getFiveSuitsView(room.fsState, socketId));
+    }
+  }
+
+  function endFiveSuitsRound(room, code) {
+    const state = room.fsState;
+    // Score penalty for each player's remaining hand cards
+    for (const id of state.playerOrder) {
+      const hand = state.playerHands[id] ?? [];
+      const penalty = scorePenalty(hand, state.round);
+      state.roundScores[id].push(penalty);
+    }
+
+    if (state.round >= 11) {
+      state.phase = 'game-over';
+      // Compute totals
+      const totals = {};
+      for (const id of state.playerOrder) {
+        totals[id] = state.roundScores[id].reduce((s, v) => s + v, 0);
+      }
+      const winnerId = state.playerOrder.reduce((best, id) => totals[id] < totals[best] ? id : best);
+      const playerList = state.playerOrder.map(id => ({ id, name: room.players.get(id)?.name ?? id }));
+      io.to(code).emit('fs:game-over', {
+        playerOrder: playerList,
+        roundScores: state.roundScores,
+        totals,
+        winnerId,
+      });
+      console.log(`[fs:game-over] ${code} — winner: ${room.players.get(winnerId)?.name}`);
+    } else {
+      state.phase = 'round-end';
+      broadcastFS(code);
+      console.log(`[fs:round-end] ${code} — round ${state.round} complete`);
+    }
+  }
+
+  // ── Draw from face-down pile ───────────────────────────────────────────────────
+  socket.on('fs:draw-deck', ({ code }) => {
+    const room = fsRoom(code);
+    if (!room) return;
+    const state = room.fsState;
+    if (!['playing', 'final-round'].includes(state.phase)) return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (state.hasDrawn.has(socket.id)) return;
+    if (state.deck.length === 0) return;
+
+    const card = state.deck.pop();
+    state.playerHands[socket.id].push(card);
+    state.hasDrawn.add(socket.id);
+    console.log(`[fs:draw-deck] ${code} — ${room.players.get(socket.id)?.name} drew from deck`);
+    broadcastFS(code);
+  });
+
+  // ── Draw top of discard pile ───────────────────────────────────────────────────
+  socket.on('fs:draw-discard', ({ code }) => {
+    const room = fsRoom(code);
+    if (!room) return;
+    const state = room.fsState;
+    if (!['playing', 'final-round'].includes(state.phase)) return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (state.hasDrawn.has(socket.id)) return;
+    if (state.discardPile.length === 0) return;
+
+    const card = state.discardPile.pop();
+    state.playerHands[socket.id].push(card);
+    state.hasDrawn.add(socket.id);
+    console.log(`[fs:draw-discard] ${code} — ${room.players.get(socket.id)?.name} drew from discard`);
+    broadcastFS(code);
+  });
+
+  // ── Lay a meld ─────────────────────────────────────────────────────────────────
+  // param: indices — array of hand indices (from the player's current hand array)
+  socket.on('fs:meld', ({ code, indices }) => {
+    const room = fsRoom(code);
+    if (!room) return;
+    const state = room.fsState;
+    if (!['playing', 'final-round'].includes(state.phase)) return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (!state.hasDrawn.has(socket.id)) return;
+    if (!Array.isArray(indices) || indices.length < 3) return;
+
+    const hand = state.playerHands[socket.id];
+    // Validate indices
+    const uniqueIdx = [...new Set(indices)];
+    if (uniqueIdx.length !== indices.length) return;
+    if (indices.some(i => i < 0 || i >= hand.length)) return;
+
+    const meldCards = indices.map(i => hand[i]);
+    const meldType = validateMeld(meldCards, state.round);
+    if (!meldType) return;
+
+    // Remove melded cards from hand (descending order to keep indices stable)
+    const sortedDesc = [...indices].sort((a, b) => b - a);
+    for (const i of sortedDesc) {
+      hand.splice(i, 1);
+    }
+
+    // Add meld to player's melds
+    state.melds[socket.id].push({ type: meldType, cards: meldCards });
+
+    console.log(`[fs:meld]     ${code} — ${room.players.get(socket.id)?.name} laid ${meldType} (${meldCards.length} cards)`);
+    broadcastFS(code);
+  });
+
+  // ── Discard one card, end turn ─────────────────────────────────────────────────
+  // param: index — hand index of card to discard
+  socket.on('fs:discard', ({ code, index }) => {
+    const room = fsRoom(code);
+    if (!room) return;
+    const state = room.fsState;
+    if (!['playing', 'final-round'].includes(state.phase)) return;
+    if (state.playerOrder[state.currentTurnIndex] !== socket.id) return;
+    if (!state.hasDrawn.has(socket.id)) return;
+
+    const hand = state.playerHands[socket.id];
+    if (index < 0 || index >= hand.length) return;
+
+    const card = hand.splice(index, 1)[0];
+    state.discardPile.push(card);
+    state.hasDrawn.delete(socket.id);
+
+    console.log(`[fs:discard]  ${code} — ${room.players.get(socket.id)?.name} discarded ${card.rank} ${card.suit}`);
+
+    // Check going out
+    if (hand.length === 0 && state.phase === 'playing') {
+      state.goOutPlayerId = socket.id;
+      state.phase = 'final-round';
+      state.finalTurnsRemaining = state.playerOrder.length - 1;
+      console.log(`[fs:go-out]   ${code} — ${room.players.get(socket.id)?.name} went out`);
+    } else if (state.phase === 'final-round' && socket.id !== state.goOutPlayerId) {
+      state.finalTurnsRemaining--;
+      if (state.finalTurnsRemaining <= 0) {
+        endFiveSuitsRound(room, code);
+        return;
+      }
+    }
+
+    // Advance turn index, skipping goOutPlayerId during final-round
+    state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+    if (state.phase === 'final-round' && state.goOutPlayerId) {
+      let safety = 0;
+      while (state.playerOrder[state.currentTurnIndex] === state.goOutPlayerId) {
+        state.currentTurnIndex = (state.currentTurnIndex + 1) % state.playerOrder.length;
+        safety++;
+        if (safety >= state.playerOrder.length) break;
+      }
+    }
+
+    broadcastFS(code);
+  });
+
+  // ── Ready for next round ───────────────────────────────────────────────────────
+  socket.on('fs:round-ready', ({ code }) => {
+    const room = fsRoom(code);
+    if (!room) return;
+    const state = room.fsState;
+    if (state.phase !== 'round-end') return;
+
+    state.roundReadyIds.add(socket.id);
+    console.log(`[fs:round-ready] ${code} — ${room.players.get(socket.id)?.name} ready (${state.roundReadyIds.size}/${state.playerOrder.length})`);
+
+    if (state.roundReadyIds.size >= state.playerOrder.length) {
+      // Rotate player order so a new player goes first
+      const prevScores = state.roundScores;
+      const oldOrder = state.playerOrder;
+      const newOrder = [...oldOrder.slice(1), oldOrder[0]];
+      room.fsState = createFiveSuitsState(newOrder, state.round + 1, prevScores);
+      const playerList = room.fsState.playerOrder.map(id => ({ id, name: room.players.get(id)?.name ?? id }));
+      for (const socketId of room.fsState.playerOrder) {
+        const view = getFiveSuitsView(room.fsState, socketId);
+        io.to(socketId).emit('fs:state', view);
+      }
+      console.log(`[fs:new-round] ${code} — round ${room.fsState.round} starting`);
+    } else {
+      broadcastFS(code);
+    }
+  });
+
+  // ── Rejoin after socket reconnect ─────────────────────────────────────────────
+  socket.on('fs:rejoin', ({ code, oldId }) => {
+    const room = rooms.get(code);
+    if (!room?.fsState) return;
+    if (!room.players.has(oldId)) return;
+    if (socket.id === oldId) return;
+
+    const playerInfo = room.players.get(oldId);
+    room.players.delete(oldId);
+    room.players.set(socket.id, playerInfo);
+    if (room.hostId === oldId) room.hostId = socket.id;
+    socket.join(code);
+
+    const state = room.fsState;
+
+    function swapId(obj) {
+      if (oldId in obj) { obj[socket.id] = obj[oldId]; delete obj[oldId]; }
+    }
+
+    const i = state.playerOrder.indexOf(oldId);
+    if (i !== -1) state.playerOrder[i] = socket.id;
+    swapId(state.playerHands);
+    swapId(state.melds);
+    swapId(state.roundScores);
+    if (state.hasDrawn.has(oldId)) { state.hasDrawn.delete(oldId); state.hasDrawn.add(socket.id); }
+    if (state.roundReadyIds.has(oldId)) { state.roundReadyIds.delete(oldId); state.roundReadyIds.add(socket.id); }
+    if (state.goOutPlayerId === oldId) state.goOutPlayerId = socket.id;
+
+    console.log(`[fs:rejoin]   ${code} — ${playerInfo.name} rejoined (${oldId.slice(-4)} → ${socket.id.slice(-4)})`);
+    socket.emit('fs:rejoined', { newId: socket.id, playerOrder: state.playerOrder });
+    broadcastFS(code);
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────────────

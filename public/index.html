@@ -110,6 +110,10 @@
             <span class="game-name">Un-Solitaire</span>
             <span class="game-desc">Cooperative solitaire</span>
           </button>
+          <button class="game-option" data-game="five-suits" type="button">
+            <span class="game-name">Five Suits</span>
+            <span class="game-desc">Rummy-style, 11 rounds</span>
+          </button>
         </div>
         <p id="host-note" class="host-note hidden">Only the host can change the game.</p>
       </div>
@@ -271,6 +275,75 @@
             </div>
           </div>
 
+        </div>
+      </div>
+
+      <!-- Five Suits board -->
+      <div id="fivesuits-board" class="hidden">
+        <div class="fs-layout">
+
+          <!-- Info bar: round + wild card -->
+          <div class="fs-info-bar">
+            <span class="fs-round-badge">Round <span id="fs-round-num">1</span>/11</span>
+            <span class="fs-wild-badge">Wild: <span id="fs-wild-rank">3</span>s + Jokers</span>
+            <button id="fs-scores-btn" class="fs-scores-btn">Scores</button>
+          </div>
+
+          <!-- All players' melds area -->
+          <div class="fs-melds-area" id="fs-melds-area"></div>
+
+          <!-- Draw + discard piles -->
+          <div class="fs-piles-row">
+            <div class="fs-pile-slot">
+              <p class="fs-pile-label">Draw</p>
+              <div id="fs-draw-pile" class="fs-draw-pile"></div>
+              <p id="fs-draw-count" class="fs-pile-count"></p>
+            </div>
+            <div class="fs-pile-slot">
+              <p class="fs-pile-label">Discard</p>
+              <div id="fs-discard-top" class="fs-discard-top"></div>
+              <p id="fs-discard-count" class="fs-pile-count"></p>
+            </div>
+          </div>
+
+          <!-- Turn indicator -->
+          <div id="fs-turn-indicator" class="fs-turn-indicator"></div>
+
+          <!-- Opponents hand sizes -->
+          <div id="fs-opponents-row" class="fs-opponents-row"></div>
+
+          <!-- Player hand + action buttons -->
+          <div class="fs-hand-section">
+            <div class="fs-hand-header">
+              <span>Your Hand (<span id="fs-hand-count">0</span>)</span>
+              <div class="fs-hand-btns">
+                <button id="fs-sort-rank-btn" class="fs-sort-btn">Rank</button>
+                <button id="fs-sort-suit-btn" class="fs-sort-btn">Suit</button>
+                <button id="fs-meld-btn" class="fs-action-btn" disabled>Lay Meld</button>
+                <button id="fs-discard-btn" class="fs-action-btn" disabled>Discard</button>
+              </div>
+            </div>
+            <div id="fs-hand-row" class="fs-hand-row"></div>
+          </div>
+
+        </div>
+
+        <!-- Scores panel overlay -->
+        <div id="fs-scores-overlay" class="fs-scores-overlay hidden">
+          <div class="fs-scores-panel">
+            <h3>Scores</h3>
+            <div id="fs-scores-content"></div>
+            <button id="fs-scores-close">Close</button>
+          </div>
+        </div>
+
+        <!-- Round-end overlay -->
+        <div id="fs-round-end-overlay" class="fs-round-end-overlay hidden">
+          <div class="fs-round-end-panel">
+            <h3 id="fs-round-end-title">Round Complete</h3>
+            <div id="fs-round-end-content"></div>
+            <button id="fs-next-round-btn">Ready for Round <span id="fs-next-round-num">2</span></button>
+          </div>
         </div>
       </div>
 

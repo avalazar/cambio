@@ -1409,3 +1409,438 @@ body.is-sorting .us-hand-row {
   text-align: center;
   padding: 0.5rem 0;
 }
+
+/* ════════════════════════════════════════════════════════════
+   ── Five Suits layout ──────────────────────────────────────
+   ════════════════════════════════════════════════════════════ */
+
+#fivesuits-board {
+  width: 100%;
+  position: relative;
+}
+
+.fs-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 0.25rem;
+}
+
+/* Info bar */
+.fs-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.fs-round-badge {
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 999px;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  letter-spacing: 0.04em;
+}
+
+.fs-wild-badge {
+  background: #1b3a1b;
+  border: 1px solid #4caf50;
+  border-radius: 999px;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4caf50;
+}
+
+.fs-scores-btn {
+  margin-left: auto;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid #555;
+  color: #888;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.fs-scores-btn:hover { border-color: #aaa; color: #ccc; background: transparent; }
+
+/* Melds area */
+.fs-melds-area {
+  max-height: 160px;
+  overflow-y: auto;
+  background: rgba(22, 33, 62, 0.5);
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+}
+
+.fs-melds-empty {
+  font-size: 0.78rem;
+  color: #444;
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
+.fs-meld-group {
+  margin-bottom: 0.5rem;
+}
+.fs-meld-group:last-child { margin-bottom: 0; }
+
+.fs-meld-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #666;
+  margin-bottom: 0.3rem;
+}
+
+.fs-meld-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.fs-meld-type-badge {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.fs-meld-cards {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+/* Piles row */
+.fs-piles-row {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.fs-pile-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.fs-pile-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+}
+
+.fs-pile-count {
+  font-size: 0.72rem;
+  color: #555;
+}
+
+/* Draw pile face-down card */
+.fs-draw-pile { cursor: default; }
+
+.fs-draw-card {
+  width: 52px;
+  height: 74px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #1e3a5f 0%, #16213e 100%);
+  border: 2px solid #e94560;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+.fs-draw-card.drawable {
+  cursor: pointer;
+  border-color: #4caf50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.45);
+}
+.fs-draw-card.drawable:hover {
+  box-shadow: 0 0 16px rgba(76, 175, 80, 0.7);
+}
+.fs-card-back-inner {
+  width: 76%;
+  height: 76%;
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  border-radius: 3px;
+}
+
+/* Discard top */
+.fs-discard-top {
+  min-width: 52px;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fs-card-empty {
+  width: 52px;
+  height: 74px;
+  border: 2px dashed #333;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: #444;
+}
+.fs-discard-card.drawable {
+  cursor: pointer;
+  outline: 2px solid #4caf50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.45);
+}
+.fs-discard-card.drawable:hover {
+  box-shadow: 0 0 16px rgba(76, 175, 80, 0.7);
+}
+
+/* Turn indicator */
+.fs-turn-indicator {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.35rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid #333;
+  color: #888;
+  text-align: center;
+}
+.fs-turn-indicator.my-turn {
+  border-color: #4caf50;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+/* Opponents row */
+.fs-opponents-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.fs-opponent-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.3rem 0.65rem;
+  min-width: 60px;
+}
+.fs-opponent-chip.active-turn {
+  border-color: #e94560;
+}
+.fs-opponent-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #aaa;
+}
+.fs-opponent-chip.active-turn .fs-opponent-name { color: #e94560; }
+.fs-opponent-count {
+  font-size: 0.65rem;
+  color: #555;
+}
+
+/* Hand section */
+.fs-hand-section {
+  background: rgba(22, 33, 62, 0.6);
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fs-hand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.fs-hand-btns {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.fs-sort-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid #444;
+  color: #777;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.fs-sort-btn:hover { border-color: #777; color: #bbb; background: transparent; }
+.fs-sort-btn.active { border-color: #64b5f6; color: #64b5f6; background: rgba(100,181,246,0.08); }
+
+.fs-action-btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e94560;
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.fs-action-btn:hover:not(:disabled) { background: #c73652; }
+.fs-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.fs-hand-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0.15rem 0;
+  min-height: 78px;
+}
+
+/* ── Five Suits cards ──────────────────────────────────────────────────────── */
+.fs-card {
+  width: 52px;
+  height: 74px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: box-shadow 0.12s, outline 0.12s;
+}
+
+.fs-card-tl {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.fs-card-suit {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* Suit colors */
+.fs-card.spades  { color: #1a1a1a; }
+.fs-card.hearts  { color: #c0392b; }
+.fs-card.clubs   { color: #2a7a2a; }
+.fs-card.diamonds { color: #1a5ab8; }
+.fs-card.stars   { color: #b8860b; }
+
+/* Joker — rainbow/multi-color outline */
+.fs-card.joker {
+  background: linear-gradient(135deg, #fff9 60%, #ffe0 100%);
+  border: 2px solid #b8860b;
+  color: #b8860b;
+  box-shadow: 0 0 6px rgba(184, 134, 11, 0.45);
+}
+
+/* Wild rank — highlighted */
+.fs-card.wild-rank {
+  border: 2px solid #4caf50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.35);
+}
+
+/* Selected state */
+.fs-card.selected {
+  outline: 2px solid #64b5f6;
+  box-shadow: 0 0 12px rgba(100, 181, 246, 0.75);
+  transform: translateY(-4px);
+}
+
+/* ── Scores overlay ────────────────────────────────────────────────────────── */
+.fs-scores-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 26, 46, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+  border-radius: inherit;
+}
+
+.fs-scores-panel {
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 14px;
+  padding: 1.5rem 1.25rem;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.fs-scores-panel h3 {
+  font-size: 1.1rem;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+/* ── Round-end overlay ─────────────────────────────────────────────────────── */
+.fs-round-end-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 26, 46, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 11;
+  border-radius: inherit;
+}
+
+.fs-round-end-panel {
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 14px;
+  padding: 1.5rem 1.25rem;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+.fs-round-end-panel h3 {
+  font-size: 1.1rem;
+  color: #e0e0e0;
+  margin: 0;
+}
